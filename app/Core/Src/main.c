@@ -8,8 +8,14 @@
 #include "stm32n6xx_ll_system.h"
 #include "stm32n6xx_ll_utils.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+#include "serial_console.h"
+#include "shell_port.h"
+
 static void MX_GPIO_Init(void);
 static void SystemIsolation_Config(void);
+static void LedTask(void *argument);
 
 int main(void)
 {
@@ -23,15 +29,31 @@ int main(void)
 
   MX_GPIO_Init();
   SystemIsolation_Config();
+  serial_console_init();
+  shell_port_start();
+
+  BaseType_t ok = xTaskCreate(LedTask, "led", 256, NULL, 1, NULL);
+  configASSERT(ok == pdPASS);
+
+  vTaskStartScheduler();
+
+  while (1)
+  {
+  }
+}
+
+static void LedTask(void *argument)
+{
+  (void)argument;
 
   while (1)
   {
     LL_GPIO_ResetOutputPin(GPIOG, LL_GPIO_PIN_10);
     LL_GPIO_SetOutputPin(GPIOE, LL_GPIO_PIN_10);
-    LL_mDelay(500);
+    vTaskDelay(pdMS_TO_TICKS(500));
     LL_GPIO_SetOutputPin(GPIOG, LL_GPIO_PIN_10);
     LL_GPIO_ResetOutputPin(GPIOE, LL_GPIO_PIN_10);
-    LL_mDelay(500);
+    vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
 
@@ -47,6 +69,9 @@ static void SystemIsolation_Config(void)
 
   LL_GPIO_EnablePinSecure(GPIOG, LL_GPIO_PIN_10);
   LL_GPIO_DisablePinPrivilege(GPIOG, LL_GPIO_PIN_10);
+
+  LL_GPIO_EnablePinSecure(GPIOE, LL_GPIO_PIN_5 | LL_GPIO_PIN_6);
+  LL_GPIO_DisablePinPrivilege(GPIOE, LL_GPIO_PIN_5 | LL_GPIO_PIN_6);
 }
 
 static void MX_GPIO_Init(void)

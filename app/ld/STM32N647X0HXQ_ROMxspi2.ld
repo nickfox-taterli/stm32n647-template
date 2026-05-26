@@ -84,6 +84,15 @@ SECTIONS
     . = ALIGN(4);
   } >ROM
 
+  .shellCommand :
+  {
+    . = ALIGN(4);
+    _shell_command_start = .;
+    KEEP(*(shellCommand))
+    . = ALIGN(4);
+    _shell_command_end = .;
+  } >ROM
+
   .ARM.extab   :
   {
     . = ALIGN(4);

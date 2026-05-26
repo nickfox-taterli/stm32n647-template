@@ -31,16 +31,44 @@ set(LL_SRCS
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_gpio.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_pwr.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_rcc.c
+    Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_usart.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_utils.c
 )
 
 set(APP_SRCS
     Core/Src/main.c
+    Core/Src/freertos_hooks.c
+    Core/Src/serial_console.c
+    Core/Src/shell_port.c
     Core/Src/stm32n6xx_it.c
     Core/Src/system_stm32n6xx_s.c
     Core/Src/secure_nsc.c
     Core/Src/syscalls.c
     Core/Src/sysmem.c
+)
+
+set(FREERTOS_SRCS
+    Middlewares/FreeRTOS-Kernel/tasks.c
+    Middlewares/FreeRTOS-Kernel/list.c
+    Middlewares/FreeRTOS-Kernel/queue.c
+    Middlewares/FreeRTOS-Kernel/timers.c
+    Middlewares/FreeRTOS-Kernel/event_groups.c
+    Middlewares/FreeRTOS-Kernel/stream_buffer.c
+    Middlewares/FreeRTOS-Kernel/croutine.c
+    Middlewares/FreeRTOS-Kernel/portable/GCC/ARM_CM55_NTZ/non_secure/port.c
+    Middlewares/FreeRTOS-Kernel/portable/GCC/ARM_CM55_NTZ/non_secure/portasm.c
+    Middlewares/FreeRTOS-Kernel/portable/MemMang/heap_4.c
+)
+
+set(LETTER_SHELL_SRCS
+    Middlewares/letter-shell/src/shell.c
+    Middlewares/letter-shell/src/shell_cmd_list.c
+    Middlewares/letter-shell/src/shell_companion.c
+    Middlewares/letter-shell/src/shell_ext.c
+)
+
+set(LWRB_SRCS
+    Middlewares/lwrb/src/lwrb/lwrb.c
 )
 
 set(STARTUP Startup/startup_stm32n647x0hxq.s)
@@ -57,17 +85,26 @@ add_executable(${APP_ELF}
     ${STARTUP}
     ${APP_SRCS}
     ${LL_SRCS}
+    ${FREERTOS_SRCS}
+    ${LETTER_SHELL_SRCS}
+    ${LWRB_SRCS}
 )
 
 target_include_directories(${APP_ELF} PRIVATE
     ${CMAKE_SOURCE_DIR}/Core/Inc
     ${CMAKE_SOURCE_DIR}/Secure_nsclib
+    ${CMAKE_SOURCE_DIR}/Middlewares/FreeRTOS-Kernel/include
+    ${CMAKE_SOURCE_DIR}/Middlewares/FreeRTOS-Kernel/portable/GCC/ARM_CM55_NTZ/non_secure
+    ${CMAKE_SOURCE_DIR}/Middlewares/letter-shell/src
+    ${CMAKE_SOURCE_DIR}/Middlewares/lwrb/src/include
     ${CMSIS_INC}
     ${LL_INC}
 )
 
 target_compile_options(${APP_ELF} PRIVATE
     ${CPU_FLAGS} -mcmse ${DEFS} ${WARN} ${OPT} ${SEC}
+    -DSHELL_CFG_USER=\"shell_port_cfg.h\"
+    -DLWRB_DISABLE_ATOMIC
     $<$<COMPILE_LANGUAGE:ASM>:${CPU_FLAGS}>
 )
 

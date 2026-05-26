@@ -1,4 +1,5 @@
 #include "stm32n6xx_it.h"
+#include "serial_console.h"
 
 void NMI_Handler(void)
 {
@@ -42,18 +43,11 @@ void SecureFault_Handler(void)
   }
 }
 
-void SVC_Handler(void)
-{
-}
-
 void DebugMon_Handler(void)
 {
 }
 
-void PendSV_Handler(void)
+void USART1_IRQHandler(void)
 {
-}
-
-void SysTick_Handler(void)
-{
+  serial_console_irq_handler();
 }
