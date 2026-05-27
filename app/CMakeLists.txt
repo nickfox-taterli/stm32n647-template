@@ -33,6 +33,9 @@ set(LL_SRCS
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_rcc.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_usart.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_utils.c
+    Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_sdmmc.c
+    Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_dlyb.c
+    Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_sd.c
 )
 
 set(APP_SRCS
@@ -45,6 +48,8 @@ set(APP_SRCS
     Core/Src/secure_nsc.c
     Core/Src/syscalls.c
     Core/Src/sysmem.c
+    Core/Src/sd_test.c
+    Core/Src/hal_shim.c
 )
 
 set(FREERTOS_SRCS
@@ -99,6 +104,7 @@ target_include_directories(${APP_ELF} PRIVATE
     ${CMAKE_SOURCE_DIR}/Middlewares/lwrb/src/include
     ${CMSIS_INC}
     ${LL_INC}
+    ${CMAKE_SOURCE_DIR}/Drivers/STM32N6xx_HAL_Driver/Inc/Legacy
 )
 
 target_compile_options(${APP_ELF} PRIVATE

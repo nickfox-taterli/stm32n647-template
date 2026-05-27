@@ -1,0 +1,19 @@
+#ifndef STM32N6xx_HAL_CONF_H
+#define STM32N6xx_HAL_CONF_H
+
+#define HAL_MODULE_ENABLED
+#define HAL_SD_MODULE_ENABLED
+
+#define USE_HAL_SD_REGISTER_CALLBACKS 0U
+#define USE_HAL_SD_ABORT_REGISTER_CALLBACKS 0U
+
+#define TICK_INT_PRIORITY ((uint32_t)(1U << __NVIC_PRIO_BITS) - 1U)
+
+#include <stdint.h>
+#define assert_param(expr) ((void)0U)
+
+/* Minimal RCC constants needed by HAL_SD */
+#define RCC_PERIPHCLK_SDMMC1  (0x0000000040000000UL)
+#define RCC_PERIPHCLK_SDMMC2  (0x0000000080000000UL)
+
+#endif /* STM32N6xx_HAL_CONF_H */

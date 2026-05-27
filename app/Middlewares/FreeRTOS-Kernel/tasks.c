@@ -5860,7 +5860,7 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
              *
              * A critical region is not required here as we are just reading from
              * the list, and an occasional incorrect value will not matter.  If
-             * the ready list at the idle priority contains one more task than the
+              * the ready list at the idle priority contains one more task than the
              * number of idle tasks, which is equal to the configured numbers of cores
              * then a task other than the idle task is ready to execute. */
             if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ tskIDLE_PRIORITY ] ) ) > ( UBaseType_t ) configNUMBER_OF_CORES )
