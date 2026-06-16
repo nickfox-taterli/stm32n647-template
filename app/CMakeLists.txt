@@ -39,17 +39,21 @@ set(LL_SRCS
 )
 
 set(APP_SRCS
-    Core/Src/main.c
-    Core/Src/freertos_hooks.c
-    Core/Src/serial_console.c
-    Core/Src/shell_port.c
-    Core/Src/stm32n6xx_it.c
-    Core/Src/system_stm32n6xx_s.c
-    Core/Src/secure_nsc.c
-    Core/Src/syscalls.c
-    Core/Src/sysmem.c
-    Core/Src/sd_test.c
-    Core/Src/hal_shim.c
+    Core/Src/app/main.c
+    Core/Src/app/app_tasks.c
+    Core/Src/drivers/board_init.c
+    Core/Src/drivers/sdmmc_drv.c
+    Core/Src/drivers/sdmmc_test.c
+    Core/Src/shell_cmds/sdmmc_cmd.c
+    Core/Src/console/serial_console.c
+    Core/Src/console/shell_port.c
+    Core/Src/system/stm32n6xx_it.c
+    Core/Src/system/system_stm32n6xx_s.c
+    Core/Src/system/secure_nsc.c
+    Core/Src/system/syscalls.c
+    Core/Src/system/sysmem.c
+    Core/Src/system/hal_shim.c
+    Core/Src/system/freertos_hooks.c
 )
 
 set(FREERTOS_SRCS
@@ -97,6 +101,11 @@ add_executable(${APP_ELF}
 
 target_include_directories(${APP_ELF} PRIVATE
     ${CMAKE_SOURCE_DIR}/Core/Inc
+    ${CMAKE_SOURCE_DIR}/Core/Inc/app
+    ${CMAKE_SOURCE_DIR}/Core/Inc/drivers
+    ${CMAKE_SOURCE_DIR}/Core/Inc/shell_cmds
+    ${CMAKE_SOURCE_DIR}/Core/Inc/console
+    ${CMAKE_SOURCE_DIR}/Core/Inc/system
     ${CMAKE_SOURCE_DIR}/Secure_nsclib
     ${CMAKE_SOURCE_DIR}/Middlewares/FreeRTOS-Kernel/include
     ${CMAKE_SOURCE_DIR}/Middlewares/FreeRTOS-Kernel/portable/GCC/ARM_CM55_NTZ/non_secure

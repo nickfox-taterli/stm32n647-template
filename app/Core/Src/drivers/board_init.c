@@ -1,22 +1,8 @@
+#include "board_init.h"
 #include "stm32n647xx.h"
-
 #include "stm32n6xx_ll_bus.h"
-#include "stm32n6xx_ll_cortex.h"
 #include "stm32n6xx_ll_gpio.h"
 #include "stm32n6xx_ll_pwr.h"
-#include "stm32n6xx_ll_rcc.h"
-#include "stm32n6xx_ll_system.h"
-#include "stm32n6xx_ll_utils.h"
-
-#include "FreeRTOS.h"
-#include "task.h"
-#include "serial_console.h"
-#include "shell_port.h"
-#include "sd_test.h"
-
-static void MX_GPIO_Init(void);
-static void SystemIsolation_Config(void);
-static void LedTask(void *argument);
 
 #define RIF_CID_1_VALUE              1U
 #define RIF_MASTER_INDEX_SDMMC1      2U
@@ -41,49 +27,7 @@ static void RIF_SetSlaveSecurePriv(uint32_t reg_index, uint32_t bit)
   RIFSC->RISC_PRIVCFGRx[reg_index] |= (1UL << bit);
 }
 
-int main(void)
-{
-  SCB_EnableICache();
-  SCB_EnableDCache();
-
-  NVIC_SetPriorityGrouping(3);
-  
-  SystemCoreClockUpdate();
-  LL_Init1msTick(SystemCoreClock);
-
-  MX_GPIO_Init();
-  SystemIsolation_Config();
-  serial_console_init();
-  shell_port_start();
-
-  xTaskCreate(SD_InitTask, "sd_init", 768, NULL, 2, NULL);
-
-  BaseType_t ok = xTaskCreate(LedTask, "led", 256, NULL, 1, NULL);
-  configASSERT(ok == pdPASS);
-
-  vTaskStartScheduler();
-
-  while (1)
-  {
-  }
-}
-
-static void LedTask(void *argument)
-{
-  (void)argument;
-
-  while (1)
-  {
-    LL_GPIO_ResetOutputPin(GPIOG, LL_GPIO_PIN_10);
-    LL_GPIO_SetOutputPin(GPIOE, LL_GPIO_PIN_10);
-    vTaskDelay(pdMS_TO_TICKS(500));
-    LL_GPIO_SetOutputPin(GPIOG, LL_GPIO_PIN_10);
-    LL_GPIO_ResetOutputPin(GPIOE, LL_GPIO_PIN_10);
-    vTaskDelay(pdMS_TO_TICKS(500));
-  }
-}
-
-static void SystemIsolation_Config(void)
+void SystemIsolation_Config(void)
 {
   LL_AHB3_GRP1_EnableClock(LL_AHB3_GRP1_PERIPH_RIFSC);
 
@@ -129,7 +73,7 @@ static void SystemIsolation_Config(void)
   LL_GPIO_DisablePinPrivilege(GPIOH, LL_GPIO_PIN_2);
 }
 
-static void MX_GPIO_Init(void)
+void MX_GPIO_Init(void)
 {
   LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
 
