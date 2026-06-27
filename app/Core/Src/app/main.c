@@ -25,6 +25,7 @@ int main(void)
   shell_port_start();
 
   xTaskCreate(SD_InitTask, "sd_init", 768, NULL, 2, NULL);
+  xTaskCreate(LcdColorTask, "lcd_color", 512, NULL, 2, NULL);
 
   BaseType_t ok = xTaskCreate(LedTask, "led", 256, NULL, 1, NULL);
   configASSERT(ok == pdPASS);

@@ -189,6 +189,14 @@ SECTIONS
     . = ALIGN(8);
   } >RAM
 
+  .EXTRAM (NOLOAD) :
+  {
+    . = ALIGN(32);
+    *(.EXTRAM)
+    *(.EXTRAM*)
+    . = ALIGN(32);
+  } >HYPERRAM
+
   /DISCARD/ :
   {
     libc.a ( * )

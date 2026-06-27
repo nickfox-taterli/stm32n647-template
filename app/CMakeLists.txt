@@ -42,6 +42,7 @@ set(APP_SRCS
     Core/Src/app/main.c
     Core/Src/app/app_tasks.c
     Core/Src/drivers/board_init.c
+    Core/Src/drivers/rgb_lcd.c
     Core/Src/drivers/sdmmc_drv.c
     Core/Src/drivers/sdmmc_test.c
     Core/Src/shell_cmds/sdmmc_cmd.c
