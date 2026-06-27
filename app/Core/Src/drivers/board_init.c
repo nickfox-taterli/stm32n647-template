@@ -8,11 +8,17 @@
 #define RIF_MASTER_INDEX_SDMMC1      2U
 #define RIF_MASTER_INDEX_SDMMC2      3U
 #define RIF_MASTER_INDEX_DMA2D       8U
+#define RIF_MASTER_INDEX_DCMIPP      9U
 #define RIF_MASTER_INDEX_LTDC1       10U
 #define RIF_MASTER_INDEX_LTDC2       11U
+#define RIF_RISC_REG_PERIPH0         0U
+#define RIF_RISC_BIT_I2C2            10U
 #define RIF_RISC_REG_SDMMC           1U
 #define RIF_RISC_BIT_SDMMC1          21U
 #define RIF_RISC_BIT_SDMMC2          22U
+#define RIF_RISC_REG_CAMERA          2U
+#define RIF_RISC_BIT_CSI             28U
+#define RIF_RISC_BIT_DCMIPP          29U
 #define RIF_RISC_REG_DISPLAY         3U
 #define RIF_RISC_BIT_DMA2D           5U
 #define RIF_RISC_BIT_LTDC            6U
@@ -52,10 +58,14 @@ void SystemIsolation_Config(void)
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_SDMMC1);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_SDMMC2);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_DMA2D);
+  RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_DCMIPP);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_LTDC1);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_LTDC2);
+  RIF_SetSlaveSecurePriv(RIF_RISC_REG_PERIPH0, RIF_RISC_BIT_I2C2);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_SDMMC, RIF_RISC_BIT_SDMMC1);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_SDMMC, RIF_RISC_BIT_SDMMC2);
+  RIF_SetSlaveSecurePriv(RIF_RISC_REG_CAMERA, RIF_RISC_BIT_CSI);
+  RIF_SetSlaveSecurePriv(RIF_RISC_REG_CAMERA, RIF_RISC_BIT_DCMIPP);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_DISPLAY, RIF_RISC_BIT_DMA2D);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_DISPLAY, RIF_RISC_BIT_LTDC);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_DISPLAY, RIF_RISC_BIT_LTDCL1);
@@ -86,6 +96,8 @@ void SystemIsolation_Config(void)
                                      LL_GPIO_PIN_10 | LL_GPIO_PIN_11 | LL_GPIO_PIN_12);
   LL_GPIO_EnablePinSecure(GPIOD, LL_GPIO_PIN_2);
   LL_GPIO_DisablePinPrivilege(GPIOD, LL_GPIO_PIN_2);
+  LL_GPIO_EnablePinSecure(GPIOD, LL_GPIO_PIN_4 | LL_GPIO_PIN_14);
+  LL_GPIO_DisablePinPrivilege(GPIOD, LL_GPIO_PIN_4 | LL_GPIO_PIN_14);
   LL_GPIO_EnablePinSecure(GPIOE, LL_GPIO_PIN_4);
   LL_GPIO_DisablePinPrivilege(GPIOE, LL_GPIO_PIN_4);
   LL_GPIO_EnablePinSecure(GPIOH, LL_GPIO_PIN_2);
@@ -108,11 +120,11 @@ void SystemIsolation_Config(void)
   LL_GPIO_EnablePinSecure(GPIOF, LL_GPIO_PIN_8 | LL_GPIO_PIN_9);
   LL_GPIO_DisablePinPrivilege(GPIOF, LL_GPIO_PIN_8 | LL_GPIO_PIN_9);
   LL_GPIO_EnablePinSecure(GPIOG, LL_GPIO_PIN_0 | LL_GPIO_PIN_1 | LL_GPIO_PIN_2 |
-                                 LL_GPIO_PIN_9 | LL_GPIO_PIN_12 | LL_GPIO_PIN_13 |
-                                 LL_GPIO_PIN_15);
+                                 LL_GPIO_PIN_4 | LL_GPIO_PIN_6 | LL_GPIO_PIN_9 |
+                                 LL_GPIO_PIN_12 | LL_GPIO_PIN_13 | LL_GPIO_PIN_15);
   LL_GPIO_DisablePinPrivilege(GPIOG, LL_GPIO_PIN_0 | LL_GPIO_PIN_1 | LL_GPIO_PIN_2 |
-                                     LL_GPIO_PIN_9 | LL_GPIO_PIN_12 | LL_GPIO_PIN_13 |
-                                     LL_GPIO_PIN_15);
+                                     LL_GPIO_PIN_4 | LL_GPIO_PIN_6 | LL_GPIO_PIN_9 |
+                                     LL_GPIO_PIN_12 | LL_GPIO_PIN_13 | LL_GPIO_PIN_15);
   LL_GPIO_EnablePinSecure(GPIOH, LL_GPIO_PIN_4);
   LL_GPIO_DisablePinPrivilege(GPIOH, LL_GPIO_PIN_4);
 }

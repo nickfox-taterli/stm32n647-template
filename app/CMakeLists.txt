@@ -32,6 +32,7 @@ set(LL_SRCS
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_pwr.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_rcc.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_usart.c
+    Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_i2c.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_utils.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_sdmmc.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_dlyb.c
@@ -42,6 +43,8 @@ set(APP_SRCS
     Core/Src/app/main.c
     Core/Src/app/app_tasks.c
     Core/Src/drivers/board_init.c
+    Core/Src/drivers/camera_demo.c
+    Core/Src/drivers/imx415.c
     Core/Src/drivers/rgb_lcd.c
     Core/Src/drivers/sdmmc_drv.c
     Core/Src/drivers/sdmmc_test.c

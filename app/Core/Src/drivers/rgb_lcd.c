@@ -143,6 +143,16 @@ void RGB_LCD_Fill(uint16_t color)
     s_lcd_framebuffer[i] = color;
   }
 
+  RGB_LCD_Flush();
+}
+
+uint16_t *RGB_LCD_GetFrameBuffer(void)
+{
+  return s_lcd_framebuffer;
+}
+
+void RGB_LCD_Flush(void)
+{
   SCB_CleanDCache_by_Addr((uint32_t *)s_lcd_framebuffer, sizeof(s_lcd_framebuffer));
 }
 
