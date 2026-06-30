@@ -101,16 +101,16 @@ void CameraTask(void *argument)
     frame_count++;
     if ((frame_count == 1U) || ((frame_count % 30U) == 0U))
     {
-      CameraDemoDebug debug;
+      // CameraDemoDebug debug;
 
-      CameraDemo_GetDebug(&debug);
-      (void)snprintf(line, sizeof(line), "camera: frame=%lu p1sr=0x%08lx p1ppcr=0x%08lx fb=%04x..%04x\r\n",
-                     (unsigned long)frame_count,
-                     (unsigned long)debug.dcmipp_p1sr,
-                     (unsigned long)debug.dcmipp_p1ppcr,
-                     (unsigned int)debug.fb_min,
-                     (unsigned int)debug.fb_max);
-      camera_log(line);
+      // CameraDemo_GetDebug(&debug);
+      // (void)snprintf(line, sizeof(line), "camera: frame=%lu p1sr=0x%08lx p1ppcr=0x%08lx fb=%04x..%04x\r\n",
+      //                (unsigned long)frame_count,
+      //                (unsigned long)debug.dcmipp_p1sr,
+      //                (unsigned long)debug.dcmipp_p1ppcr,
+      //                (unsigned int)debug.fb_min,
+      //                (unsigned int)debug.fb_max);
+      // camera_log(line);
     }
   }
 

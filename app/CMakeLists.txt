@@ -49,6 +49,7 @@ set(APP_SRCS
     Core/Src/drivers/sdmmc_drv.c
     Core/Src/drivers/sdmmc_test.c
     Core/Src/shell_cmds/sdmmc_cmd.c
+    Core/Src/shell_cmds/camera_shell.c
     Core/Src/console/serial_console.c
     Core/Src/console/shell_port.c
     Core/Src/system/stm32n6xx_it.c
