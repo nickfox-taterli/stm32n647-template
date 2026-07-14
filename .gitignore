@@ -45,3 +45,5 @@ desktop.ini
 *.log
 
 .vscode/
+AGENTS.md
+CLAUDE.md

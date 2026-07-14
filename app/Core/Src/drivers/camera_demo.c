@@ -5,6 +5,8 @@
 
 #include "imx415.h"
 #include "rgb_lcd.h"
+#include "ai_instance_segmentation.h"
+#include "app_config.h"
 #include "stm32n647xx.h"
 #include "stm32n6xx_ll_bus.h"
 #include "stm32n6xx_ll_rcc.h"
@@ -18,6 +20,16 @@
 #define CAMERA_PREVIEW_PITCH_BYTES   (CAMERA_PREVIEW_WIDTH * sizeof(uint16_t))
 #define CAMERA_PREVIEW_BYTES         (CAMERA_PREVIEW_PITCH_BYTES * CAMERA_PREVIEW_HEIGHT)
 #define CAMERA_CAPTURE_TIMEOUT_MS    1000U
+/* Keep the camera scaler synchronized with the generated model input. */
+#define CAMERA_AI_WIDTH              NN_WIDTH
+#define CAMERA_AI_HEIGHT             NN_HEIGHT
+#define CAMERA_AI_PITCH_BYTES        (CAMERA_AI_WIDTH * 3U)
+#define CAMERA_AI_CROP_SIZE          CAMERA_ISP_HEIGHT
+#define CAMERA_AI_CROP_X             ((CAMERA_ISP_WIDTH - CAMERA_AI_CROP_SIZE) / 2U)
+#define CAMERA_AI_HRATIO             ((CAMERA_AI_CROP_SIZE * 8192U) / CAMERA_AI_WIDTH)
+#define CAMERA_AI_VRATIO             ((CAMERA_AI_CROP_SIZE * 8192U) / CAMERA_AI_HEIGHT)
+#define CAMERA_AI_HDIV               ((CAMERA_AI_WIDTH * 1023U + CAMERA_AI_CROP_SIZE / 2U) / CAMERA_AI_CROP_SIZE)
+#define CAMERA_AI_VDIV               ((CAMERA_AI_HEIGHT * 1023U + CAMERA_AI_CROP_SIZE / 2U) / CAMERA_AI_CROP_SIZE)
 /* Boot with the sensor in normal (non-pattern) mode; TPG is toggled at runtime
  * via `cam tpg`. The pending-controls apply on frame 1 keeps this in sync. */
 #define CAMERA_USE_TEST_PATTERN      0U
@@ -63,6 +75,7 @@
 static uint16_t s_camera_preview[CAMERA_PREVIEW_WIDTH * CAMERA_PREVIEW_HEIGHT]
   __attribute__((aligned(32)));
 static CameraDemoDebug s_camera_debug;
+static uint8_t s_ai_capture_armed;
 
 static CameraDemoControls s_active_controls =
 {
@@ -146,7 +159,9 @@ static void CameraDemo_CopyPreviewToLcd(void)
   SCB_InvalidateDCache_by_Addr((uint32_t *)s_camera_preview, sizeof(s_camera_preview));
   for (uint32_t y = 0; y < RGB_LCD_HEIGHT; y++)
   {
-    uint32_t sy = (y * CAMERA_PREVIEW_HEIGHT) / RGB_LCD_HEIGHT;
+    /* The panel scan direction is opposite to the IMX415/ISP line order. */
+    uint32_t sy = ((RGB_LCD_HEIGHT - 1U - y) * CAMERA_PREVIEW_HEIGHT) /
+                  RGB_LCD_HEIGHT;
     const uint16_t *src = &s_camera_preview[sy * CAMERA_PREVIEW_WIDTH];
     uint16_t *dst = &fb[y * RGB_LCD_WIDTH];
 
@@ -166,6 +181,7 @@ static void CameraDemo_CopyPreviewToLcd(void)
     }
   }
 
+  AIInstanceSegmentation_DrawDetections(fb, RGB_LCD_WIDTH, RGB_LCD_HEIGHT);
   RGB_LCD_Flush();
 }
 
@@ -262,17 +278,55 @@ static CameraDemoStatus CameraDemo_CSIInit(void)
   DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_COVRF |
                   DCMIPP_P1FCR_CVSYNCF;
 
+  /* Pipe2 branches after Pipe1 ISP. Crop the IMX415 image to a centered
+   * square, resize in hardware and write packed RGB888 straight into the
+   * network input buffer. */
+  DCMIPP->P2FSCR = DCMIPP_DT_RAW10;
+  DCMIPP->P2FCTCR = 0U;
+  DCMIPP->P2CRSTR = (CAMERA_AI_CROP_X << DCMIPP_P2CRSTR_HSTART_Pos);
+  DCMIPP->P2CRSZR = (CAMERA_AI_CROP_SIZE << DCMIPP_P2CRSZR_HSIZE_Pos) |
+                    (CAMERA_AI_CROP_SIZE << DCMIPP_P2CRSZR_VSIZE_Pos) |
+                    DCMIPP_P2CRSZR_ENABLE;
+  DCMIPP->P2DSCR = (CAMERA_AI_HDIV << DCMIPP_P2DSCR_HDIV_Pos) |
+                   (CAMERA_AI_VDIV << DCMIPP_P2DSCR_VDIV_Pos) |
+                   DCMIPP_P2DSCR_ENABLE;
+  DCMIPP->P2DSRTIOR = (CAMERA_AI_HRATIO << DCMIPP_P2DSRTIOR_HRATIO_Pos) |
+                      (CAMERA_AI_VRATIO << DCMIPP_P2DSRTIOR_VRATIO_Pos);
+  DCMIPP->P2DSSZR = (CAMERA_AI_WIDTH << DCMIPP_P2DSSZR_HSIZE_Pos) |
+                    (CAMERA_AI_HEIGHT << DCMIPP_P2DSSZR_VSIZE_Pos);
+  /* The 993 model was exported for the channel order selected by the
+   * reference project's enable_swap=1 setting. */
+  DCMIPP->P2PPCR = DCMIPP_P2PPCR_SWAPRB; /* RGB888, one memory plane. */
+  DCMIPP->P2PPM0PR = CAMERA_AI_PITCH_BYTES;
+  DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_COVRF |
+                  DCMIPP_P2FCR_CVSYNCF;
+
   return CAMERA_DEMO_OK;
 }
 
 static void CameraDemo_StartPipe1(void)
 {
+  uint8_t *ai_input = AIInstanceSegmentation_GetInputBuffer();
+
   SCB_CleanInvalidateDCache_by_Addr((uint32_t *)s_camera_preview, sizeof(s_camera_preview));
   DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_COVRF |
                   DCMIPP_P1FCR_CVSYNCF;
   DCMIPP->P1PPM0AR1 = (uint32_t)s_camera_preview;
   DCMIPP->P1FCTCR = DCMIPP_MODE_SNAPSHOT;
   DCMIPP->P1FSCR = DCMIPP_DT_RAW10 | DCMIPP_P1FSCR_PIPEN;
+  s_ai_capture_armed = (ai_input != NULL) ? 1U : 0U;
+  if (s_ai_capture_armed != 0U)
+  {
+    SCB_CleanInvalidateDCache_by_Addr((uint32_t *)ai_input,
+                                      CAMERA_AI_PITCH_BYTES * CAMERA_AI_HEIGHT);
+    DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_COVRF |
+                    DCMIPP_P2FCR_CVSYNCF;
+    DCMIPP->P2PPM0AR1 = (uint32_t)ai_input;
+    DCMIPP->P2FCTCR = DCMIPP_P2FCTCR_CPTMODE;
+    DCMIPP->P2FSCR = DCMIPP_DT_RAW10 | DCMIPP_P2FSCR_PIPEN;
+    DCMIPP->P2FCTCR |= DCMIPP_P2FCTCR_CPTREQ;
+  }
+  /* Arm both pipes before the next CSI frame arrives. */
   DCMIPP->P1FCTCR |= DCMIPP_P1FCTCR_CPTREQ;
 }
 
@@ -302,6 +356,12 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
   CameraDemo_UpdateSensorDebug();
   DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_CVSYNCF;
   CameraDemo_CopyPreviewToLcd();
+  if ((s_ai_capture_armed != 0U) &&
+      ((DCMIPP->P2SR & DCMIPP_P2SR_FRAMEF) != 0U))
+  {
+    DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_CVSYNCF;
+    AIInstanceSegmentation_SubmitFrame();
+  }
   return CAMERA_DEMO_OK;
 }
 

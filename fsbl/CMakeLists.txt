@@ -94,12 +94,18 @@ target_link_options(${FSBL_ELF} PRIVATE
 )
 
 # ═══════════════════ post-build: BIN + HEX + Sign ════════════════════
-set(SIGNTOOL /usr/local/bin/STM32_SigningTool_CLI)
+set(CUBECLT_ROOT "/opt/st/stm32cubeclt_1.22.0" CACHE PATH
+    "STM32CubeCLT installation root")
+set(SIGNTOOL "${CUBECLT_ROOT}/STM32CubeProgrammer/bin/STM32_SigningTool_CLI"
+    CACHE FILEPATH "STM32 Signing Tool executable")
+if(NOT EXISTS "${SIGNTOOL}")
+    message(FATAL_ERROR "STM32 Signing Tool not found: ${SIGNTOOL}")
+endif()
 
 add_custom_command(TARGET ${FSBL_ELF} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary  ${FSBL_ELF} ${CMAKE_PROJECT_NAME}.bin
     COMMAND ${CMAKE_OBJCOPY} -Oihex    ${FSBL_ELF} ${CMAKE_PROJECT_NAME}.hex
-    COMMAND qemu-x86_64-static ${SIGNTOOL} -s -bin ${CMAKE_PROJECT_NAME}.bin -nk -of 0x80000000 -t fsbl -o ${CMAKE_PROJECT_NAME}-trusted.bin -hv 2.3 -align -dump ${CMAKE_PROJECT_NAME}-trusted.bin
+    COMMAND ${SIGNTOOL} -s -bin ${CMAKE_PROJECT_NAME}.bin -nk -of 0x80000000 -t fsbl -o ${CMAKE_PROJECT_NAME}-trusted.bin -hv 2.3 -align -dump ${CMAKE_PROJECT_NAME}-trusted.bin
     COMMAND ${CMAKE_OBJCOPY} -I binary ${CMAKE_PROJECT_NAME}-trusted.bin --change-addresses 0x70000000 -O ihex ${CMAKE_PROJECT_NAME}-trusted.hex
     COMMAND ${CMAKE_SIZE}     ${FSBL_ELF}
     COMMENT "Post-build: generating BIN, HEX, signed trusted BIN/HEX"

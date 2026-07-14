@@ -11,7 +11,8 @@ MEMORY
    * XSPI2 NOR: physical 32MiB
    * Memory window: 0x70000000
    */
-  ROM     (rx)  : ORIGIN = 0x70010000, LENGTH = 0x1FF0000
+  /* Reserve the final 4 MiB (0x71C00000..0x71FFFFFF) for NPU weights. */
+  ROM     (rx)  : ORIGIN = 0x70010000, LENGTH = 0x1BF0000
 
   /*
    * XSPI1 HyperRAM: physical 32MiB

@@ -7,6 +7,9 @@
 #ifdef HAL_SD_MODULE_ENABLED
 #include "stm32n6xx_hal_sd.h"
 #endif
+#ifdef HAL_CACHEAXI_MODULE_ENABLED
+#include "stm32n6xx_hal_cacheaxi.h"
+#endif
 
 extern __IO uint32_t uwTick;
 extern uint32_t uwTickPrio;

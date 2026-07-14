@@ -8,6 +8,7 @@
 #include "serial_console.h"
 #include "shell_port.h"
 #include "sdmmc_drv.h"
+#include "ai_instance_segmentation.h"
 
 int main(void)
 {
@@ -26,6 +27,7 @@ int main(void)
 
   xTaskCreate(SD_InitTask, "sd_init", 768, NULL, 2, NULL);
   xTaskCreate(CameraTask, "camera", 2048, NULL, 2, NULL);
+  xTaskCreate(AIInstanceSegmentationTask, "ai_iseg", 2048, NULL, 3, NULL);
 
   BaseType_t ok = xTaskCreate(LedTask, "led", 256, NULL, 1, NULL);
   configASSERT(ok == pdPASS);

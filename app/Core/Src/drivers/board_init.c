@@ -6,6 +6,7 @@
 
 #define RIF_CID_1_VALUE              1U
 #define RIF_MASTER_INDEX_SDMMC1      2U
+#define RIF_MASTER_INDEX_NPU         1U
 #define RIF_MASTER_INDEX_SDMMC2      3U
 #define RIF_MASTER_INDEX_DMA2D       8U
 #define RIF_MASTER_INDEX_DCMIPP      9U
@@ -24,6 +25,8 @@
 #define RIF_RISC_BIT_LTDC            6U
 #define RIF_RISC_BIT_LTDCL1          7U
 #define RIF_RISC_BIT_LTDCL2          8U
+#define RIF_RISC_REG_NPU             3U
+#define RIF_RISC_BIT_NPU             10U
 
 static void RIF_SetMasterSecurePriv(uint32_t master_id)
 {
@@ -56,6 +59,7 @@ void SystemIsolation_Config(void)
   LL_PWR_EnableVddIO5();
 
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_SDMMC1);
+  RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_NPU);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_SDMMC2);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_DMA2D);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_DCMIPP);
@@ -70,6 +74,7 @@ void SystemIsolation_Config(void)
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_DISPLAY, RIF_RISC_BIT_LTDC);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_DISPLAY, RIF_RISC_BIT_LTDCL1);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_DISPLAY, RIF_RISC_BIT_LTDCL2);
+  RIF_SetSlaveSecurePriv(RIF_RISC_REG_NPU, RIF_RISC_BIT_NPU);
 
   LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOA);
   LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOB);

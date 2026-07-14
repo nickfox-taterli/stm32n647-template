@@ -33,8 +33,15 @@ void serial_console_init(void)
   configASSERT(lwrb_init(&rx_rb, rx_rb_storage, sizeof(rx_rb_storage)) == 1U);
   configASSERT(lwrb_init(&tx_rb, tx_rb_storage, sizeof(tx_rb_storage)) == 1U);
 
-  LL_RCC_SetUSARTClockSource(LL_RCC_USART1_CLKSOURCE_PCLK2);
+  /* The APP inherits the FSBL clock tree.  PCLK2 consequently is not a
+   * stable console reference across XIP/debug starts; use the 64 MHz HSI
+   * kernel clock instead so the host can always use 115200/8N1. */
+  LL_RCC_HSI_Enable();
+  while (LL_RCC_HSI_IsReady() == 0U) {}
+  LL_RCC_SetUSARTClockSource(LL_RCC_USART1_CLKSOURCE_HSI);
   LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
+  LL_APB2_GRP1_ForceReset(LL_APB2_GRP1_PERIPH_USART1);
+  LL_APB2_GRP1_ReleaseReset(LL_APB2_GRP1_PERIPH_USART1);
   LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOE);
 
   gpio_init.Pin = LL_GPIO_PIN_5 | LL_GPIO_PIN_6;
@@ -64,6 +71,8 @@ void serial_console_init(void)
   LL_USART_EnableIT_IDLE(SERIAL_USART);
   LL_USART_EnableIT_ERROR(SERIAL_USART);
   LL_USART_Enable(SERIAL_USART);
+  while ((LL_USART_IsActiveFlag_TEACK(SERIAL_USART) == 0U) ||
+         (LL_USART_IsActiveFlag_REACK(SERIAL_USART) == 0U)) {}
 
   NVIC_SetPriority(SERIAL_IRQ, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 6U, 0U));
   NVIC_EnableIRQ(SERIAL_IRQ);

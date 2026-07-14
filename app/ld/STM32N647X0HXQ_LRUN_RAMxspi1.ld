@@ -87,6 +87,15 @@ SECTIONS
     . = ALIGN(4);
   } >RAM
 
+  .shellCommand :
+  {
+    . = ALIGN(4);
+    _shell_command_start = .;
+    KEEP(*(shellCommand))
+    . = ALIGN(4);
+    _shell_command_end = .;
+  } >RAM
+
   .ARM.extab   (READONLY) : /* The READONLY keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
   {
     . = ALIGN(4);
