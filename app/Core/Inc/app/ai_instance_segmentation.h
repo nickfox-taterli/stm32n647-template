@@ -6,6 +6,16 @@
 void AIInstanceSegmentationTask(void *argument);
 uint8_t *AIInstanceSegmentation_GetInputBuffer(void);
 void AIInstanceSegmentation_SubmitFrame(void);
-void AIInstanceSegmentation_DrawDetections(uint16_t *framebuffer, uint32_t width, uint32_t height);
+
+typedef struct
+{
+  float x_center;
+  float y_center;
+  float width;
+  float height;
+} AIInstanceSegmentationBox;
+
+uint32_t AIInstanceSegmentation_GetBoxes(AIInstanceSegmentationBox *boxes,
+                                         uint32_t capacity);
 
 #endif

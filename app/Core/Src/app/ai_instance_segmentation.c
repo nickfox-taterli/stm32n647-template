@@ -39,33 +39,29 @@ void AIInstanceSegmentation_SubmitFrame(void)
   if (s_ai_task != NULL) xTaskNotifyGive(s_ai_task);
 }
 
-void AIInstanceSegmentation_DrawDetections(uint16_t *fb, uint32_t width, uint32_t height)
+uint32_t AIInstanceSegmentation_GetBoxes(AIInstanceSegmentationBox *boxes,
+                                         uint32_t capacity)
 {
-  iseg_pp_outBuffer_t boxes[AI_MAX_BOXES];
+  uint32_t copy_count;
   uint32_t count;
+
+  if ((boxes == NULL) || (capacity == 0U))
+  {
+    return 0U;
+  }
+
   taskENTER_CRITICAL();
   count = s_box_count;
-  memcpy(boxes, s_boxes, count * sizeof(boxes[0]));
-  taskEXIT_CRITICAL();
-  for (uint32_t i = 0; i < count; ++i)
+  copy_count = (count < capacity) ? count : capacity;
+  for (uint32_t i = 0; i < copy_count; ++i)
   {
-    int32_t x0 = (int32_t)((boxes[i].x_center - boxes[i].width * .5f) * width);
-    int32_t y0 = (int32_t)((1.0f - boxes[i].y_center - boxes[i].height * .5f) * height);
-    int32_t x1 = (int32_t)((boxes[i].x_center + boxes[i].width * .5f) * width);
-    int32_t y1 = (int32_t)((1.0f - boxes[i].y_center + boxes[i].height * .5f) * height);
-    if (x0 < 0) x0 = 0;
-    if (y0 < 0) y0 = 0;
-    if (x1 >= (int32_t)width) x1 = (int32_t)width - 1;
-    if (y1 >= (int32_t)height) y1 = (int32_t)height - 1;
-    if ((x1 <= x0) || (y1 <= y0)) continue;
-    for (int32_t t = 0; t < 3; ++t)
-    {
-      for (int32_t x = x0; x <= x1; ++x)
-      { fb[(y0 + t) * width + x] = 0x07e0U; fb[(y1 - t) * width + x] = 0x07e0U; }
-      for (int32_t y = y0; y <= y1; ++y)
-      { fb[y * width + x0 + t] = 0x07e0U; fb[y * width + x1 - t] = 0x07e0U; }
-    }
+    boxes[i].x_center = s_boxes[i].x_center;
+    boxes[i].y_center = s_boxes[i].y_center;
+    boxes[i].width = s_boxes[i].width;
+    boxes[i].height = s_boxes[i].height;
   }
+  taskEXIT_CRITICAL();
+  return copy_count;
 }
 
 static void ai_npu_init(void)

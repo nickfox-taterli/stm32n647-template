@@ -47,11 +47,10 @@ BOOT 拨码为 JTAG BOOT 时执行：
 ./scripts/boot-app-via-ram-fsbl.sh
 ```
 
-脚本从 `build/fsbl/fsbl.bin` 动态读取并校验 MSP/Reset_Handler，用
-CubeProgrammer 把 FSBL 下载到 `0x34180400`，再由 CubeCLT 自带的 ST-LINK
-GDB Server 接管已停止的内核。调试器按符号停在 `JumpToApplication`，
-确认 `0x70010000` 的 APP 向量有效后立即 detach；FSBL 自己完成最终跳转。
-整个过程不使用固定延时或硬编码的函数地址，也不依赖外部 OpenOCD。
+脚本从 `build/fsbl/fsbl.bin` 动态读取并校验 MSP/Reset_Handler，在一次
+CubeProgrammer under-reset 会话内完成 RAM 下载与校验、设置 VTOR/MSP/PC，
+最后放行内核。FSBL 随后映射 XSPI2 并自行跳到 `0x70010000`。这个运行路径
+不创建 GDB Server 会话，也不使用固定延时或硬编码的 Reset_Handler 地址。
 若此前的调试会话把目标留在 `Rev Z` / `DEV_AP_ACCESS_ERROR` 状态，应先让
 板卡完全断电再上电；仅重复 SWD 复位不能保证恢复该状态。
 

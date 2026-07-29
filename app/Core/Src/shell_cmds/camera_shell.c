@@ -144,6 +144,10 @@ static int cam_cmd_status(int argc, char **argv)
   P("  P1EXCR2 = 0x%08lx\r\n", (unsigned long)dbg.dcmipp_p1excr2);
   P("  P1PPCR  = 0x%08lx\r\n", (unsigned long)dbg.dcmipp_p1ppcr);
   P("  P1DECR  = 0x%08lx\r\n", (unsigned long)dbg.dcmipp_p1decr);
+  P("  P1CMRICR= 0x%08lx\r\n", (unsigned long)dbg.dcmipp_p1cmricr);
+  P("  P1ROI1  = 0x%08lx/0x%08lx\r\n",
+    (unsigned long)dbg.dcmipp_p1ri1cr1,
+    (unsigned long)dbg.dcmipp_p1ri1cr2);
 
   P("capture:\r\n");
   P("  CSI SR0  = 0x%08lx\r\n", (unsigned long)dbg.csi_sr0);

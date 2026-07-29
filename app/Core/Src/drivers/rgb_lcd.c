@@ -156,6 +156,22 @@ void RGB_LCD_Flush(void)
   SCB_CleanDCache_by_Addr((uint32_t *)s_lcd_framebuffer, sizeof(s_lcd_framebuffer));
 }
 
+void RGB_LCD_FlushRows(uint32_t first_row, uint32_t row_count)
+{
+  if ((first_row >= RGB_LCD_HEIGHT) || (row_count == 0U))
+  {
+    return;
+  }
+  if (row_count > (RGB_LCD_HEIGHT - first_row))
+  {
+    row_count = RGB_LCD_HEIGHT - first_row;
+  }
+
+  SCB_CleanDCache_by_Addr(
+    (uint32_t *)&s_lcd_framebuffer[first_row * RGB_LCD_WIDTH],
+    row_count * RGB_LCD_WIDTH * RGB_LCD_BYTES_PER_PIXEL);
+}
+
 void RGB_LCD_Init(void)
 {
   RGB_LCD_GPIO_Init();

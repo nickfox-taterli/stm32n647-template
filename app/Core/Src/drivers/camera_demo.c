@@ -3,6 +3,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include <string.h>
+
 #include "imx415.h"
 #include "rgb_lcd.h"
 #include "ai_instance_segmentation.h"
@@ -30,6 +32,8 @@
 #define CAMERA_AI_VRATIO             ((CAMERA_AI_CROP_SIZE * 8192U) / CAMERA_AI_HEIGHT)
 #define CAMERA_AI_HDIV               ((CAMERA_AI_WIDTH * 1023U + CAMERA_AI_CROP_SIZE / 2U) / CAMERA_AI_CROP_SIZE)
 #define CAMERA_AI_VDIV               ((CAMERA_AI_HEIGHT * 1023U + CAMERA_AI_CROP_SIZE / 2U) / CAMERA_AI_CROP_SIZE)
+#define CAMERA_PIPE1_ROI_COUNT       8U
+#define CAMERA_PIPE1_ROI_LINE_SIZE   1U /* 2 pixels, encoded as 01. */
 /* Boot with the sensor in normal (non-pattern) mode; TPG is toggled at runtime
  * via `cam tpg`. The pending-controls apply on frame 1 keeps this in sync. */
 #define CAMERA_USE_TEST_PATTERN      0U
@@ -126,6 +130,9 @@ static void CameraDemo_UpdateDebug(void)
   s_camera_debug.dcmipp_p1decr = DCMIPP->P1DECR;
   s_camera_debug.dcmipp_p1excr1 = DCMIPP->P1EXCR1;
   s_camera_debug.dcmipp_p1excr2 = DCMIPP->P1EXCR2;
+  s_camera_debug.dcmipp_p1cmricr = DCMIPP->P1CMRICR;
+  s_camera_debug.dcmipp_p1ri1cr1 = DCMIPP->P1RIxCR1;
+  s_camera_debug.dcmipp_p1ri1cr2 = DCMIPP->P1RIxCR2;
 }
 
 static void CameraDemo_UpdateFrameBufferStats(void)
@@ -157,32 +164,140 @@ static void CameraDemo_CopyPreviewToLcd(void)
   uint16_t *fb = RGB_LCD_GetFrameBuffer();
 
   SCB_InvalidateDCache_by_Addr((uint32_t *)s_camera_preview, sizeof(s_camera_preview));
-  for (uint32_t y = 0; y < RGB_LCD_HEIGHT; y++)
+  /* Keep the preview at its native 512x300 size. The remaining LCD area is
+   * initialized to black once; only the sensor/display scan direction is
+   * corrected here. Clearing the live framebuffer every frame makes LTDC scan
+   * partially black frames and causes severe flicker. */
+  for (uint32_t y = 0; y < CAMERA_PREVIEW_HEIGHT; y++)
   {
     /* The panel scan direction is opposite to the IMX415/ISP line order. */
-    uint32_t sy = ((RGB_LCD_HEIGHT - 1U - y) * CAMERA_PREVIEW_HEIGHT) /
-                  RGB_LCD_HEIGHT;
+    uint32_t sy = CAMERA_PREVIEW_HEIGHT - 1U - y;
     const uint16_t *src = &s_camera_preview[sy * CAMERA_PREVIEW_WIDTH];
     uint16_t *dst = &fb[y * RGB_LCD_WIDTH];
 
-    for (uint32_t x = 0; x < RGB_LCD_WIDTH; x++)
+    if (s_active_controls.swap_rb == 0U)
     {
-      uint32_t sx = (x * CAMERA_PREVIEW_WIDTH) / RGB_LCD_WIDTH;
-      uint16_t pixel = src[sx];
-
-      if (s_active_controls.swap_rb != 0U)
+      memcpy(dst, src, CAMERA_PREVIEW_PITCH_BYTES);
+    }
+    else
+    {
+      for (uint32_t x = 0; x < CAMERA_PREVIEW_WIDTH; x++)
       {
-        pixel = (uint16_t)(((pixel & 0x001FU) << 11) |
-                           ( pixel & 0x07E0U)        |
-                           ((pixel & 0xF800U) >> 11));
-      }
+        uint16_t pixel = src[x];
 
-      dst[x] = pixel;
+        dst[x] = (uint16_t)(((pixel & 0x001FU) << 11) |
+                            ( pixel & 0x07E0U)        |
+                            ((pixel & 0xF800U) >> 11));
+      }
     }
   }
 
-  AIInstanceSegmentation_DrawDetections(fb, RGB_LCD_WIDTH, RGB_LCD_HEIGHT);
-  RGB_LCD_Flush();
+  RGB_LCD_FlushRows(0U, CAMERA_PREVIEW_HEIGHT);
+}
+
+static uint32_t CameraDemo_NormalizedToPreviewX(float normalized)
+{
+  float source_x = (float)CAMERA_AI_CROP_X +
+                   (normalized * (float)CAMERA_AI_CROP_SIZE);
+
+  if (source_x <= 0.0f)
+  {
+    return 0U;
+  }
+  if (source_x >= (float)CAMERA_ISP_WIDTH)
+  {
+    return CAMERA_PREVIEW_WIDTH;
+  }
+  return (uint32_t)((source_x * (float)CAMERA_PREVIEW_WIDTH /
+                     (float)CAMERA_ISP_WIDTH) + 0.5f);
+}
+
+static uint32_t CameraDemo_NormalizedToPreviewY(float normalized)
+{
+  float source_y = normalized * (float)CAMERA_AI_CROP_SIZE;
+
+  if (source_y <= 0.0f)
+  {
+    return 0U;
+  }
+  if (source_y >= (float)CAMERA_ISP_HEIGHT)
+  {
+    return CAMERA_PREVIEW_HEIGHT;
+  }
+  return (uint32_t)((source_y * (float)CAMERA_PREVIEW_HEIGHT /
+                     (float)CAMERA_ISP_HEIGHT) + 0.5f);
+}
+
+static void CameraDemo_UpdatePipe1Rois(void)
+{
+  AIInstanceSegmentationBox boxes[CAMERA_PIPE1_ROI_COUNT];
+  volatile uint32_t *roi_registers = &DCMIPP->P1RIxCR1;
+  uint32_t box_count = AIInstanceSegmentation_GetBoxes(boxes,
+                                                        CAMERA_PIPE1_ROI_COUNT);
+  uint32_t common = CAMERA_PIPE1_ROI_LINE_SIZE;
+
+  for (uint32_t i = 0; i < CAMERA_PIPE1_ROI_COUNT; ++i)
+  {
+    roi_registers[i * 2U] = 0U;
+    roi_registers[(i * 2U) + 1U] = 0U;
+  }
+
+  if (box_count > CAMERA_PIPE1_ROI_COUNT)
+  {
+    box_count = CAMERA_PIPE1_ROI_COUNT;
+  }
+
+  for (uint32_t i = 0; i < box_count; ++i)
+  {
+    float x0_normalized = boxes[i].x_center - (boxes[i].width * 0.5f);
+    float x1_normalized = boxes[i].x_center + (boxes[i].width * 0.5f);
+    float y0_normalized = boxes[i].y_center - (boxes[i].height * 0.5f);
+    float y1_normalized = boxes[i].y_center + (boxes[i].height * 0.5f);
+    uint32_t x0 = CameraDemo_NormalizedToPreviewX(x0_normalized);
+    uint32_t x1 = CameraDemo_NormalizedToPreviewX(x1_normalized);
+    uint32_t y0 = CameraDemo_NormalizedToPreviewY(y0_normalized);
+    uint32_t y1 = CameraDemo_NormalizedToPreviewY(y1_normalized);
+
+    if (x1 <= x0)
+    {
+      x1 = (x0 < CAMERA_PREVIEW_WIDTH) ? (x0 + 1U) : x0;
+    }
+    if (y1 <= y0)
+    {
+      y1 = (y0 < CAMERA_PREVIEW_HEIGHT) ? (y0 + 1U) : y0;
+    }
+    if ((x0 >= CAMERA_PREVIEW_WIDTH) || (y0 >= CAMERA_PREVIEW_HEIGHT) ||
+        (x1 <= x0) || (y1 <= y0))
+    {
+      continue;
+    }
+    if (x1 > CAMERA_PREVIEW_WIDTH)
+    {
+      x1 = CAMERA_PREVIEW_WIDTH;
+    }
+    if (y1 > CAMERA_PREVIEW_HEIGHT)
+    {
+      y1 = CAMERA_PREVIEW_HEIGHT;
+    }
+    if ((x1 <= x0) || (y1 <= y0))
+    {
+      continue;
+    }
+
+    /* DCMIPP ROI coordinates are in Pipe1's post-downsize 512x300 output.
+     * Pipe2 sees a 320x320 square crop from the half-resolution ISP image;
+     * map the detection back through that crop before programming Pipe1. */
+    roi_registers[i * 2U] =
+      ((x0 << DCMIPP_P1RIxCR1_HSTART_Pos) & DCMIPP_P1RIxCR1_HSTART) |
+      ((y0 << DCMIPP_P1RIxCR1_VSTART_Pos) & DCMIPP_P1RIxCR1_VSTART) |
+      (3U << DCMIPP_P1RIxCR1_CLG_Pos);
+    roi_registers[(i * 2U) + 1U] =
+      (((x1 - x0) << DCMIPP_P1RIxCR2_HSIZE_Pos) & DCMIPP_P1RIxCR2_HSIZE) |
+      (((y1 - y0) << DCMIPP_P1RIxCR2_VSIZE_Pos) & DCMIPP_P1RIxCR2_VSIZE);
+    common |= (1UL << (DCMIPP_P1CMRICR_ROI1EN_Pos + i));
+  }
+
+  DCMIPP->P1CMRICR = common;
 }
 
 static void CameraDemo_CSI_WritePHYReg(uint32_t reg_msb, uint32_t reg_lsb, uint32_t val)
@@ -309,6 +424,7 @@ static void CameraDemo_StartPipe1(void)
   uint8_t *ai_input = AIInstanceSegmentation_GetInputBuffer();
 
   SCB_CleanInvalidateDCache_by_Addr((uint32_t *)s_camera_preview, sizeof(s_camera_preview));
+  CameraDemo_UpdatePipe1Rois();
   DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_COVRF |
                   DCMIPP_P1FCR_CVSYNCF;
   DCMIPP->P1PPM0AR1 = (uint32_t)s_camera_preview;
