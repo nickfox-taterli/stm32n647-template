@@ -7,6 +7,7 @@
 #include "stm32n6xx_ll_utils.h"
 #include "shell.h"
 #include "FreeRTOS.h"
+#include "semphr.h"
 #include "task.h"
 #include <string.h>
 
@@ -25,6 +26,7 @@ static volatile uint32_t sd2_rx_done;
 
 static int sd1_ready;
 static int sd2_ready;
+static SemaphoreHandle_t sd2_io_mutex;
 
 /* ================================================================
  *  RIF configuration
@@ -280,6 +282,67 @@ int sd_is_ready(int dev)
     return (dev == 1) ? sd1_ready : (dev == 2) ? sd2_ready : 0;
 }
 
+int sd_storage_lock(uint32_t timeout_ms)
+{
+    if (sd2_io_mutex == NULL) return -1;
+    return (xSemaphoreTake(sd2_io_mutex, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) ? 0 : -1;
+}
+
+void sd_storage_unlock(void)
+{
+    if (sd2_io_mutex != NULL) (void)xSemaphoreGive(sd2_io_mutex);
+}
+
+HAL_StatusTypeDef sd_storage_read_locked(uint32_t lba, uint32_t blocks, void *data)
+{
+    HAL_StatusTypeDef ret;
+    SD_HandleTypeDef *hsd = &hsd2;
+
+    if (!sd2_ready || data == NULL || blocks == 0U) return HAL_ERROR;
+    sd2_rx_done = 0U;
+    ret = HAL_SD_ReadBlocks_DMA(hsd, data, lba, blocks);
+    if (ret == HAL_OK && sd_wait_done_flag(&sd2_rx_done, hsd, 5000U, "MSC DMA read") != 0)
+        ret = HAL_ERROR;
+    if (ret == HAL_OK) {
+        sd_dcache_invalidate(data, blocks * 512U);
+        if (sd_wait_card_transfer(hsd, 5000U) != 0) ret = HAL_ERROR;
+    }
+    return ret;
+}
+
+HAL_StatusTypeDef sd_storage_write_locked(uint32_t lba, uint32_t blocks, const void *data)
+{
+    HAL_StatusTypeDef ret;
+    SD_HandleTypeDef *hsd = &hsd2;
+
+    if (!sd2_ready || data == NULL || blocks == 0U) return HAL_ERROR;
+    sd_dcache_clean((void *)data, blocks * 512U);
+    sd2_tx_done = 0U;
+    ret = HAL_SD_WriteBlocks_DMA(hsd, (uint8_t *)data, lba, blocks);
+    if (ret == HAL_OK && sd_wait_done_flag(&sd2_tx_done, hsd, 5000U, "MSC DMA write") != 0)
+        ret = HAL_ERROR;
+    if (ret == HAL_OK && sd_wait_card_transfer(hsd, 5000U) != 0) ret = HAL_ERROR;
+    return ret;
+}
+
+HAL_StatusTypeDef sd_storage_read(uint32_t lba, uint32_t blocks, void *data)
+{
+    HAL_StatusTypeDef ret;
+    if (sd_storage_lock(5000U) != 0) return HAL_TIMEOUT;
+    ret = sd_storage_read_locked(lba, blocks, data);
+    sd_storage_unlock();
+    return ret;
+}
+
+HAL_StatusTypeDef sd_storage_write(uint32_t lba, uint32_t blocks, const void *data)
+{
+    HAL_StatusTypeDef ret;
+    if (sd_storage_lock(5000U) != 0) return HAL_TIMEOUT;
+    ret = sd_storage_write_locked(lba, blocks, data);
+    sd_storage_unlock();
+    return ret;
+}
+
 SD_HandleTypeDef *sd_get_handle(int dev)
 {
     if (dev == 1 && sd1_ready) return &hsd1;
@@ -376,6 +439,9 @@ void sd_print_info(SD_HandleTypeDef *hsd, int dev)
 void SD_InitTask(void *argument)
 {
     (void)argument;
+
+    sd2_io_mutex = xSemaphoreCreateMutex();
+    configASSERT(sd2_io_mutex != NULL);
 
     P("\r\n[SD] Initializing SDMMC1 (SD Card)...\r\n");
     if (sd_init_card(&hsd1, SDMMC1, SDMMC1, "SD1") == HAL_OK) {

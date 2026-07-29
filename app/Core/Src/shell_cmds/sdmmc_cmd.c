@@ -53,7 +53,12 @@ static int sd_cmd_info(int argc, char **argv)
         return -1;
     }
 
+    if (dev == 2 && sd_storage_lock(5000U) != 0) {
+        P("SDMMC2 busy\r\n");
+        return -1;
+    }
     sd_print_info(hsd, dev);
+    if (dev == 2) sd_storage_unlock();
     return 0;
 }
 
@@ -85,13 +90,14 @@ static int sd_cmd_read(int argc, char **argv)
     uint32_t ok_cnt = 0;
 
     for (uint32_t i = 0; i < cnt; i++) {
-        ret = HAL_SD_ReadBlocks(hsd, buf, blk + i, 1, 5000);
+        ret = (dev == 2) ? sd_storage_read(blk + i, 1, buf) :
+              HAL_SD_ReadBlocks(hsd, buf, blk + i, 1, 5000);
         if (ret != HAL_OK) {
             P("SD read: dev # %d, block # 0x%lX: FAIL ret=%d Err=0x%08lX\r\n",
               dev, (unsigned long)(blk + i), ret, (unsigned long)hsd->ErrorCode);
             break;
         }
-        if (sd_wait_card_transfer(hsd, 5000) != 0) break;
+        if (dev != 2 && sd_wait_card_transfer(hsd, 5000) != 0) break;
         ok_cnt++;
 
         if (i == 0) {
@@ -141,21 +147,23 @@ static int sd_cmd_write(int argc, char **argv)
         uint32_t b = blk + i;
         for (int j = 0; j < 512; j++) tx[j] = (uint8_t)(j ^ (b & 0xFF));
 
-        ret = HAL_SD_WriteBlocks(hsd, tx, b, 1, 5000);
+        ret = (dev == 2) ? sd_storage_write(b, 1, tx) :
+              HAL_SD_WriteBlocks(hsd, tx, b, 1, 5000);
         if (ret != HAL_OK) {
             P("  blk 0x%lX: WRITE FAIL ret=%d\r\n", (unsigned long)b, ret);
             fail++;
             continue;
         }
-        if (sd_wait_card_transfer(hsd, 5000) != 0) { fail++; continue; }
+        if (dev != 2 && sd_wait_card_transfer(hsd, 5000) != 0) { fail++; continue; }
 
-        ret = HAL_SD_ReadBlocks(hsd, rx, b, 1, 5000);
+        ret = (dev == 2) ? sd_storage_read(b, 1, rx) :
+              HAL_SD_ReadBlocks(hsd, rx, b, 1, 5000);
         if (ret != HAL_OK) {
             P("  blk 0x%lX: READBACK FAIL ret=%d\r\n", (unsigned long)b, ret);
             fail++;
             continue;
         }
-        if (sd_wait_card_transfer(hsd, 5000) != 0) { fail++; continue; }
+        if (dev != 2 && sd_wait_card_transfer(hsd, 5000) != 0) { fail++; continue; }
 
         if (memcmp(tx, rx, 512) == 0) {
             P("  blk 0x%lX: PASS\r\n", (unsigned long)b);
@@ -206,6 +214,7 @@ static const sd_subcmd_t sd_subcmds[] = {
     { "info",  sd_cmd_info,  "sd info [1|2]" },
     { "read",  sd_cmd_read,  "sd read dev blk [cnt]" },
     { "write", sd_cmd_write, "sd write dev blk [cnt]" },
+    { "damage", sd_cmd_write, "sd damage dev blk [cnt] (destructive write/readback)" },
     { "dev",   sd_cmd_dev,   "sd dev [1|2]" },
     { NULL,    NULL,         NULL },
 };

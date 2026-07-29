@@ -77,6 +77,8 @@ set(APP_SRCS
     Core/Src/system/sysmem.c
     Core/Src/system/hal_shim.c
     Core/Src/system/freertos_hooks.c
+    Core/Src/usb/usb_descriptors.c
+    Core/Src/usb/usb_msc.c
 )
 
 set(FREERTOS_SRCS
@@ -103,6 +105,16 @@ set(LWRB_SRCS
     Middlewares/lwrb/src/lwrb/lwrb.c
 )
 
+set(TINYUSB_DIR ${CMAKE_SOURCE_DIR}/Middlewares/tinyusb/src)
+set(TINYUSB_SRCS
+    ${TINYUSB_DIR}/tusb.c
+    ${TINYUSB_DIR}/common/tusb_fifo.c
+    ${TINYUSB_DIR}/device/usbd.c
+    ${TINYUSB_DIR}/class/msc/msc_device.c
+    ${TINYUSB_DIR}/portable/synopsys/dwc2/dcd_dwc2.c
+    ${TINYUSB_DIR}/portable/synopsys/dwc2/dwc2_common.c
+)
+
 set(STARTUP Startup/startup_stm32n647x0hxq.s)
 
 set(CPU_FLAGS -mcpu=cortex-m55 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard)
@@ -123,6 +135,7 @@ add_executable(${APP_ELF}
     ${FREERTOS_SRCS}
     ${LETTER_SHELL_SRCS}
     ${LWRB_SRCS}
+    ${TINYUSB_SRCS}
     ${ATON_SRCS}
     ${AI_DIR}/Model/network.c
     ${AI_DIR}/Model/stai_network.c
@@ -159,6 +172,11 @@ target_include_directories(${APP_ELF} PRIVATE
     ${CMAKE_SOURCE_DIR}/Middlewares/ST_VISION_MODELS_PP/Inc
     ${CMAKE_SOURCE_DIR}/Middlewares/ST_VISION_MODELS_PP/Src
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/DSP/Include
+    ${TINYUSB_DIR}
+    ${TINYUSB_DIR}/common
+    ${TINYUSB_DIR}/device
+    ${TINYUSB_DIR}/class/msc
+    ${TINYUSB_DIR}/portable/synopsys/dwc2
 )
 
 target_compile_options(${APP_ELF} PRIVATE
@@ -169,6 +187,7 @@ target_compile_options(${APP_ELF} PRIVATE
     -DLL_ATON_OSAL=LL_ATON_OSAL_FREERTOS
     -DLL_ATON_SW_FALLBACK
     -DAPP_HAS_PARALLEL_NETWORKS=0
+    -DCFG_TUSB_MCU=OPT_MCU_STM32N6
     -DNPU_END_OF_EPOCH_IRQn=NPU0_IRQn
     -DNPU_INT1_IRQn=NPU1_IRQn
     -DNPU_INT2_IRQn=NPU2_IRQn

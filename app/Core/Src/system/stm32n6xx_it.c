@@ -1,6 +1,7 @@
 #include "stm32n6xx_it.h"
 #include "camera_demo.h"
 #include "serial_console.h"
+#include "tusb.h"
 
 void NMI_Handler(void)
 {
@@ -56,4 +57,9 @@ void USART1_IRQHandler(void)
 void DCMIPP_IRQHandler(void)
 {
   CameraDemo_DCMIPP_IRQHandler();
+}
+
+void USB1_OTG_HS_IRQHandler(void)
+{
+  tud_int_handler(0);
 }

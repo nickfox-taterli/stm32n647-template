@@ -8,15 +8,17 @@
 #define RIF_MASTER_INDEX_SDMMC1      2U
 #define RIF_MASTER_INDEX_NPU         1U
 #define RIF_MASTER_INDEX_SDMMC2      3U
+#define RIF_MASTER_INDEX_OTG1        4U
 #define RIF_MASTER_INDEX_DMA2D       8U
 #define RIF_MASTER_INDEX_DCMIPP      9U
 #define RIF_MASTER_INDEX_LTDC1       10U
 #define RIF_MASTER_INDEX_LTDC2       11U
 #define RIF_RISC_REG_PERIPH0         0U
 #define RIF_RISC_BIT_I2C2            10U
-#define RIF_RISC_REG_SDMMC           1U
+#define RIF_RISC_REG_PERIPH1         1U
 #define RIF_RISC_BIT_SDMMC1          21U
 #define RIF_RISC_BIT_SDMMC2          22U
+#define RIF_RISC_BIT_OTG1HS          24U
 #define RIF_RISC_REG_CAMERA          2U
 #define RIF_RISC_BIT_CSI             28U
 #define RIF_RISC_BIT_DCMIPP          29U
@@ -61,13 +63,15 @@ void SystemIsolation_Config(void)
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_SDMMC1);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_NPU);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_SDMMC2);
+  RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_OTG1);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_DMA2D);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_DCMIPP);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_LTDC1);
   RIF_SetMasterSecurePriv(RIF_MASTER_INDEX_LTDC2);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_PERIPH0, RIF_RISC_BIT_I2C2);
-  RIF_SetSlaveSecurePriv(RIF_RISC_REG_SDMMC, RIF_RISC_BIT_SDMMC1);
-  RIF_SetSlaveSecurePriv(RIF_RISC_REG_SDMMC, RIF_RISC_BIT_SDMMC2);
+  RIF_SetSlaveSecurePriv(RIF_RISC_REG_PERIPH1, RIF_RISC_BIT_SDMMC1);
+  RIF_SetSlaveSecurePriv(RIF_RISC_REG_PERIPH1, RIF_RISC_BIT_SDMMC2);
+  RIF_SetSlaveSecurePriv(RIF_RISC_REG_PERIPH1, RIF_RISC_BIT_OTG1HS);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_CAMERA, RIF_RISC_BIT_CSI);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_CAMERA, RIF_RISC_BIT_DCMIPP);
   RIF_SetSlaveSecurePriv(RIF_RISC_REG_DISPLAY, RIF_RISC_BIT_DMA2D);

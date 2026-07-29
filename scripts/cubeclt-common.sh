@@ -48,11 +48,6 @@ retry_programmer() {
 
   for ((attempt = 1; attempt <= PROGRAM_RETRIES; attempt++)); do
     ACTIVE_SWD_FREQ="$requested_freq"
-    if ((attempt == 2 && requested_freq > 1000)); then
-      ACTIVE_SWD_FREQ=1000
-    elif ((attempt >= 3 && requested_freq > 100)); then
-      ACTIVE_SWD_FREQ=100
-    fi
     if run_programmer "$mode" "$@"; then
       unset ACTIVE_SWD_FREQ
       return 0

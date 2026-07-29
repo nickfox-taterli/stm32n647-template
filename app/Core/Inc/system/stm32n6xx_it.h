@@ -14,6 +14,7 @@ void SecureFault_Handler(void);
 void DebugMon_Handler(void);
 void USART1_IRQHandler(void);
 void DCMIPP_IRQHandler(void);
+void USB1_OTG_HS_IRQHandler(void);
 
 #ifdef __cplusplus
 }
