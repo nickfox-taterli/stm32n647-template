@@ -69,6 +69,7 @@ set(APP_SRCS
     Core/Src/shell_cmds/sdmmc_cmd.c
     Core/Src/shell_cmds/camera_shell.c
     Core/Src/console/serial_console.c
+    Core/Src/console/console_log.c
     Core/Src/console/shell_port.c
     Core/Src/system/stm32n6xx_it.c
     Core/Src/system/system_stm32n6xx_s.c

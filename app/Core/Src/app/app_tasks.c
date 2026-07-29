@@ -1,13 +1,10 @@
 #include "app_tasks.h"
 #include "camera_demo.h"
+#include "console_log.h"
 #include "rgb_lcd.h"
-#include "serial_console.h"
 #include "stm32n6xx_ll_gpio.h"
 #include "FreeRTOS.h"
 #include "task.h"
-
-#include <stdio.h>
-#include <string.h>
 
 void LedTask(void *argument)
 {
@@ -51,14 +48,8 @@ void LcdColorTask(void *argument)
   }
 }
 
-static void camera_log(const char *text)
-{
-  (void)serial_console_write(text, (unsigned short)strlen(text));
-}
-
 void CameraTask(void *argument)
 {
-  char line[96];
   uint16_t sensor_id = 0U;
   uint32_t frame_count = 0U;
   CameraDemoStatus status;
@@ -68,11 +59,9 @@ void CameraTask(void *argument)
   RGB_LCD_Init();
   RGB_LCD_Fill(0x0000U);
 
-  camera_log("camera: init\r\n");
+  LOG_INFO("camera: init\r\n");
   status = CameraDemo_Init(&sensor_id);
-  (void)snprintf(line, sizeof(line), "camera: init status=%u id=0x%04x\r\n",
-                 (unsigned int)status, sensor_id);
-  camera_log(line);
+  LOG_INFO("camera: init status=%u id=0x%04x\r\n", (unsigned int)status, sensor_id);
 
   while (status == CAMERA_DEMO_OK)
   {
@@ -82,20 +71,17 @@ void CameraTask(void *argument)
       CameraDemoDebug debug;
 
       CameraDemo_GetDebug(&debug);
-      (void)snprintf(line, sizeof(line), "camera: capture status=%u p1sr=0x%08lx p1dmcr=0x%08lx\r\n",
-                     (unsigned int)status,
-                     (unsigned long)debug.dcmipp_p1sr,
-                     (unsigned long)debug.dcmipp_p1dmcr);
-      camera_log(line);
-      (void)snprintf(line, sizeof(line), "camera: csi sr0=0x%08lx err1=0x%08lx err2=0x%08lx\r\n",
-                     (unsigned long)debug.csi_sr0,
-                     (unsigned long)debug.csi_err1,
-                     (unsigned long)debug.csi_err2);
-      camera_log(line);
-      (void)snprintf(line, sizeof(line), "camera: p1ppcr=0x%08lx p1decr=0x%08lx\r\n",
-                     (unsigned long)debug.dcmipp_p1ppcr,
-                     (unsigned long)debug.dcmipp_p1decr);
-      camera_log(line);
+      LOG_WARN("camera: capture status=%u p1sr=0x%08lx p1dmcr=0x%08lx\r\n",
+               (unsigned int)status,
+               (unsigned long)debug.dcmipp_p1sr,
+               (unsigned long)debug.dcmipp_p1dmcr);
+      LOG_WARN("camera: csi sr0=0x%08lx err1=0x%08lx err2=0x%08lx\r\n",
+               (unsigned long)debug.csi_sr0,
+               (unsigned long)debug.csi_err1,
+               (unsigned long)debug.csi_err2);
+      LOG_WARN("camera: p1ppcr=0x%08lx p1decr=0x%08lx\r\n",
+               (unsigned long)debug.dcmipp_p1ppcr,
+               (unsigned long)debug.dcmipp_p1decr);
       break;
     }
     frame_count++;

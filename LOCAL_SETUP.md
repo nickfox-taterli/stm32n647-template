@@ -1,8 +1,7 @@
 # STM32N6 本机开发环境 (Local Dev Setup)
 
 本机 (aarch64 Debian) 上编译 / 下载 / 调试 STM32N647 工程的完整流程。
-工程目录：`/root/code/stm32n6`（已建兼容软链 `/root/code/st_n6 → /root/code/stm32n6`，
-因为 `.cfg` 文件里硬编码了 `/root/code/st_n6/...` 路径）。
+工程目录：`/root/code/atk-n647/st_n6`（`.cfg` 里的绝对路径已直接指向该目录，不再需要软链）。
 
 > 已验证全链路：编译 → 下载 APP 到外部 Flash → gdb-multiarch 调试 → 串口 Shell，
 > 运行的就是本机编译的镜像（串口 Banner 的 Build 时间与本地编译一致）。
@@ -21,17 +20,16 @@
 | 组件 | 位置 | 说明 |
 |------|------|------|
 | 交叉工具链 | `arm-none-eabi-gcc 14.2.1` (apt) | `gdb-multiarch`、`cmake`、`make`、`ninja` 同装 |
-| OpenOCD | `/root/code/openocd` | **ST 分支** `0.12.0+dev`（支持 STM32N6 / `stldr` 外部 Flash 加载器）。二进制 `src/openocd`，脚本 `tcl/`。依赖 `libcapstone5`(apt，已装) |
-| 签名工具 | `/usr/local/bin/STM32_SigningTool_CLI` | x86-64，经 `qemu-x86_64-static` 运行（`qemu-user-static` + `/lib/x86_64-linux-gnu/` 运行库已就位）。**仅生成 `fsbl-trusted.bin` 时需要**（生产 FSBL 烧录） |
+| OpenOCD | `/root/code/archive/openocd` | **ST 分支** `0.12.0+dev`（支持 STM32N6 / `stldr` 外部 Flash 加载器）。二进制 `src/openocd`，脚本 `tcl/`。依赖 `libcapstone5`(apt，已装) |
+| 签名工具 | `/opt/st/stm32cubeclt_1.22.0/STM32CubeProgrammer/bin/STM32_SigningTool_CLI` | 随 CubeCLT 提供，x86-64，经 binfmt/qemu 透明运行。`fsbl/CMakeLists.txt` 用 `${CUBECLT_ROOT}` 定位，**仅生成 `fsbl-trusted.bin` 时需要** |
 | 调试器 | ST-LINK/V2-1 | 见上 |
-| 路径软链 | `/root/code/st_n6 → /root/code/stm32n6` | 让 cfg 里的绝对路径原样生效 |
 
 OpenOCD / 签名工具 / x86-64 运行库均从远程 `root@192.168.31.54` 同种 aarch64 环境直接拷贝，二进制兼容。
 
 ## 2. 编译
 
 ```sh
-cd /root/code/stm32n6
+cd /root/code/atk-n647/st_n6
 # FSBL（产物：fsbl/build/fsbl.elf, fsbl.bin, fsbl-trusted.bin, fsbl.hex ...）
 cmake -S fsbl -B fsbl/build -G "Unix Makefiles"
 cmake --build fsbl/build -j
@@ -45,9 +43,9 @@ cmake --build app/build -j
 ## 3. 下载（烧 APP 到外部 Flash @0x70010000）
 
 ```sh
-/root/code/openocd/src/openocd \
-  -s /root/code/openocd/tcl -s /root/code/stm32n6/.vscode \
-  -f /root/code/stm32n6/.vscode/openocd/flash_app.cfg
+/root/code/archive/openocd/src/openocd \
+  -s /root/code/archive/openocd/tcl -s /root/code/atk-n647/st_n6/.vscode \
+  -f /root/code/atk-n647/st_n6/.vscode/openocd/flash_app.cfg
 ```
 
 经 `stldr` 外部 Flash 加载器（`loader/ExtMemLoader.stldr`）擦写。`flash_app.cfg` 默认 cwd=`app/`，故 `build/app.bin` 解析为 `app/build/app.bin`。
@@ -56,9 +54,9 @@ cmake --build app/build -j
 
 ```sh
 # 从 RAM 启动 FSBL 再跑 APP（resume 后 openocd 退出，APP 继续运行）
-/root/code/openocd/src/openocd \
-  -s /root/code/openocd/tcl -s /root/code/stm32n6/.vscode \
-  -f /root/code/stm32n6/.vscode/openocd/boot_app_via_fsbl.cfg
+/root/code/archive/openocd/src/openocd \
+  -s /root/code/archive/openocd/tcl -s /root/code/atk-n647/st_n6/.vscode \
+  -f /root/code/atk-n647/st_n6/.vscode/openocd/boot_app_via_fsbl.cfg
 picocom -b 115200 /dev/ttyUSB0     # 见 Banner + 提示符 stm32n6:/$
 ```
 
@@ -66,9 +64,9 @@ picocom -b 115200 /dev/ttyUSB0     # 见 Banner + 提示符 stm32n6:/$
 
 ```sh
 # 终端1：gdbserver（常驻）
-/root/code/openocd/src/openocd \
-  -s /root/code/openocd/tcl -s /root/code/stm32n6/.vscode \
-  -f /root/code/stm32n6/.vscode/openocd/gdbserver_extflash.cfg
+/root/code/archive/openocd/src/openocd \
+  -s /root/code/archive/openocd/tcl -s /root/code/atk-n647/st_n6/.vscode \
+  -f /root/code/atk-n647/st_n6/.vscode/openocd/gdbserver_extflash.cfg
 
 # 终端2：gdb
 gdb-multiarch app/build/app.elf
@@ -80,7 +78,7 @@ gdb-multiarch app/build/app.elf
 ```
 
 VSCode：用 `cortex-debug` 扩展，`launch.json` 已配 `Debug FSBL` / `Debug APP (External Flash)`
-（`serverpath=/root/code/openocd/src/openocd`）。
+（`serverpath=/root/code/archive/openocd/src/openocd`）。
 
 > 若上一次调试残留导致 `Failed to read memory at 0x70011cd4`，给板子断电上电一次即可。
 
@@ -89,7 +87,8 @@ VSCode：用 `cortex-debug` 扩展，`launch.json` 已配 `Debug FSBL` / `Debug 
 ```sh
 ssh-keyscan 192.168.31.54 >> ~/.ssh/known_hosts   # 首次/换主机时
 rsync -aH --exclude='/build/' --exclude='/app/build/' --exclude='/fsbl/build/' \
-  root@192.168.31.54:/root/code/st_n6/ /root/code/stm32n6/
+  root@192.168.31.54:/root/code/st_n6/ /root/code/atk-n647/st_n6/
+# 远端源路径以远端实际布局为准（远端若也迁移到 atk-n647/st_n6，需同步修改）
 ```
 
 排除 `build/`（CMake 缓存含绝对路径，迁过来需重新 configure）。

@@ -44,6 +44,7 @@ desktop.ini
 # Logs
 *.log
 
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 AGENTS.md
 CLAUDE.md

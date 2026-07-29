@@ -1,97 +1,80 @@
-# FSBL → APP 启动与调试记录
-
-本文记录当前 `st_n6` 已验证过的外部 Flash XIP 调试方法。它区分两种路径：
-
-* **正常启动**：由 BOOT 配置启动 FSBL，FSBL 初始化 XSPI2 外部 NOR 后跳转 APP。
-* **调试启动**：用 ST-LINK GDB Server 连接 FSBL，在 RAM 中运行/断下 FSBL，确认外部 Flash 已映射后，将 CPU 向量切到 APP。
-
-## 地址和跳转逻辑
+# STM32N6 烧录、启动与 FSBL → APP 交接
 
 当前镜像布局：
 
 ```text
-FSBL             0x70000000
+签名 FSBL        0x70000000
 APP 向量表       0x70010000
-模型权重         0x71C00000（NOR 最后 4 MiB）
+模型权重         0x71C00000（地址已写入 network-data.hex）
+RAM FSBL 向量表  0x34180400（仅 JTAG BOOT）
 ```
 
-`fsbl/Middlewares/STM32_ExtMem_Manager/boot/stm32_boot_xip.c` 的逻辑是：
+FSBL 先调用 `NORFlash_EnableMemoryMappedMode()` 把 XSPI2 映射到
+`0x70000000`，再从 `0x70010000` 读取 APP 的 MSP 和 Reset_Handler，设置
+`VTOR` 后跳转。因此，XSPI2 尚未映射时不能直接把 PC 设置到 APP。
 
-1. `NORFlash_EnableMemoryMappedMode()` 将 XSPI2 NOR 映射到 `0x70000000`。
-2. `XIP_IMAGE_OFFSET` 加到映射基址，得到 APP 向量表 `0x70010000`。
-3. 从 `0x70010000` 读取初始 MSP。
-4. 从 `0x70010004` 读取 APP Reset_Handler 地址。
-5. 设置 `SCB->VTOR = 0x70010000`、MSP，然后调用 Reset_Handler。
+## 构建和烧录
 
-对应源码中的关键操作为：
-
-```c
-Application_vector += XIP_IMAGE_OFFSET;
-SCB->VTOR = Application_vector;
-__set_MSP(*(__IO uint32_t *)Application_vector);
-JumpToApp = (pFunction)(*(__IO uint32_t *)(Application_vector + 4u));
-JumpToApp();
-```
-
-## CubeCLT 构建和烧录
+唯一依赖是 STM32CubeCLT，默认位置为
+`/opt/st/stm32cubeclt_1.22.0`，可用 `CUBECLT_ROOT` 覆盖。
 
 ```sh
-cd /root/code/atk-n647/st_n6
-./scripts/build.sh
-./scripts/flash-model.sh
+./scripts/build.sh all
+./scripts/flash.sh
+```
+
+`flash.sh` 依次烧录并校验模型、APP、签名 FSBL，整个过程保持 CPU 停止，
+并将签名 FSBL 放在最后写入。模型代码或权重变化时必须使用这个完整任务，
+避免 APP 与权重版本不匹配。也可以单独执行：
+
+```sh
 ./scripts/flash-app.sh
+./scripts/flash-fsbl.sh
+./scripts/flash-model.sh
 ```
 
-FSBL 使用签名 HEX 烧录：
+烧录使用 CubeProgrammer、`loader/ExtMemLoader.stldr`、under-reset 连接和
+写后校验；瞬时连接失败默认重试三次。可设置 `STLINK_SN` 选择探针、
+`SWD_FREQ` 修改频率、`PROGRAM_RETRIES` 修改重试次数。
+
+## 两种运行方式
+
+### JTAG BOOT：RAM FSBL → Flash APP
+
+BOOT 拨码为 JTAG BOOT 时执行：
 
 ```sh
-/opt/st/stm32cubeclt_1.22.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI \
-  -c port=SWD mode=UR reset=HWrst freq=4000 \
-  -el loader/ExtMemLoader.stldr \
-  -d build/fsbl/fsbl-trusted.hex -v
-```
-
-## 正常冷启动
-
-1. BOOT 拨码切到外部 XSPI Flash 启动。
-2. 断开主电源/USB，等待完全掉电。
-3. 重新上电。
-4. 不启动 GDB，不手工写寄存器。
-
-只有这种方式成功，才能证明 FSBL 的真实冷启动交接稳定。此前已经验证了 FSBL、APP、模型三段内容均可由 CubeProgrammer 校验，但正常冷启动交接仍应以板上实测为准。
-
-## 已验证的调试交接方法
-
-当直接对外部 XIP APP 下断点失败时，先调试 FSBL：
-
-2026-07-13 已在本板执行并确认此链路：CubeProgrammer 先将 CPU halt；OpenOCD 装载 `build/fsbl/fsbl.elf` 到 RAM；FSBL 在 `JumpToApplication`（`0x34181ad8`）停止。此时 CPU 已能读取外部 Flash 的 APP 向量：`0x70010000 = 0x34100000`、`0x70010004 = 0x700136cd`。
-
-推荐直接运行已固化的脚本：
-
-```sh
-cd /root/code/atk-n647/st_n6
 ./scripts/boot-app-via-ram-fsbl.sh
 ```
 
-脚本完成的动作等同于以下调试器命令：
+脚本从 `build/fsbl/fsbl.bin` 动态读取并校验 MSP/Reset_Handler，用
+CubeProgrammer 把 FSBL 下载到 `0x34180400`，再由 CubeCLT 自带的 ST-LINK
+GDB Server 接管已停止的内核。调试器按符号停在 `JumpToApplication`，
+确认 `0x70010000` 的 APP 向量有效后立即 detach；FSBL 自己完成最终跳转。
+整个过程不使用固定延时或硬编码的函数地址，也不依赖外部 OpenOCD。
+若此前的调试会话把目标留在 `Rev Z` / `DEV_AP_ACCESS_ERROR` 状态，应先让
+板卡完全断电再上电；仅重复 SWD 复位不能保证恢复该状态。
 
-```gdb
-VTOR = 0x70010000
-MSP  = *(uint32_t *)0x70010000   # 0x34100000
-PC   = *(uint32_t *)0x70010004   # 0x700136cd
-continue
+### Normal BOOT：直接复位运行
+
+BOOT 拨码为正常外部 Flash 启动时执行：
+
+```sh
+./scripts/run-normal.sh
 ```
 
-这不是绕过 FSBL：FSBL 先初始化 XSPI2 并完成 memory-map，脚本只在该事实已经由 APP 向量可读证实后，显式完成最后的向量交接。若脚本未打印 `APP vector verified`，不得直接设置 APP 的 PC。
+这个路径只脉冲硬件复位并放行 CPU，不向 RAM 重装 FSBL。ROM 从外部
+Flash 启动签名 FSBL，FSBL 再映射并跳转 APP。这也是验证真实冷启动交接
+的路径；最终仍应做一次完全断电再上电测试。
 
-## 当前自动化边界
+## VS Code Tasks
 
-目前已经自动化：
+`Terminal` → `Run Task` 中提供：
 
-* CubeCLT CMake/Ninja 构建 APP 和 FSBL；
-* CubeProgrammer 通过外部 Flash Loader 烧录 APP 和模型；
-* FSBL 的签名镜像生成。
+- `Flash APP`、`Flash FSBL`、`Flash Model`
+- `Flash All (FSBL + APP + Model)`
+- `Run APP (JTAG BOOT: RAM FSBL -> Flash)`
+- `Run APP (Normal BOOT: Reset Only)`
 
-已自动化为“一键 RAM FSBL 调试交接”：`scripts/boot-app-via-ram-fsbl.sh` 会确认映射后的 APP 向量，再切换 VTOR、MSP、PC。
-
-尚未闭环的是**无调试器的冷启动**：BOOT 拨码切到外部 XSPI Flash 后断电再上电，仍需在板上观察画面与模型结果。RAM FSBL 交接成功不能替代这项验收。
+烧录任务不会自动运行，运行任务也不会隐式擦写 Flash，可根据板上 BOOT
+模式明确选择。所有构建产物统一位于 `build/app` 和 `build/fsbl`。

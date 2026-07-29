@@ -22,19 +22,19 @@ From repo root:
 
 ```sh
 cmake --build app/build
-/root/code/openocd/src/openocd \
-  -s /root/code/openocd/tcl \
-  -s /root/code/st_n6/.vscode \
-  -f /root/code/st_n6/.vscode/openocd/flash_app.cfg
+/root/code/archive/openocd/src/openocd \
+  -s /root/code/archive/openocd/tcl \
+  -s /root/code/atk-n647/st_n6/.vscode \
+  -f /root/code/atk-n647/st_n6/.vscode/openocd/flash_app.cfg
 ```
 
 If the board does not boot the app automatically after flashing, start the FSBL from RAM for test:
 
 ```sh
-/root/code/openocd/src/openocd \
-  -s /root/code/openocd/tcl \
-  -s /root/code/st_n6/.vscode \
-  -f /root/code/st_n6/.vscode/openocd/boot_app_via_fsbl.cfg
+/root/code/archive/openocd/src/openocd \
+  -s /root/code/archive/openocd/tcl \
+  -s /root/code/atk-n647/st_n6/.vscode \
+  -f /root/code/atk-n647/st_n6/.vscode/openocd/boot_app_via_fsbl.cfg
 ```
 
 Open the serial shell:

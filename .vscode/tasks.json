@@ -1,0 +1,86 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build APP",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/build.sh",
+            "args": ["app"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build FSBL",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/build.sh",
+            "args": ["fsbl"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build All",
+            "dependsOn": ["Build APP", "Build FSBL"],
+            "dependsOrder": "sequence",
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash APP",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/flash-app.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "Build APP",
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash FSBL",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/flash-fsbl.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "Build FSBL",
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash Model",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/flash-model.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash All (FSBL + APP + Model)",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/flash.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "Build All",
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run APP (JTAG BOOT: RAM FSBL -> Flash)",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/boot-app-via-ram-fsbl.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "Build FSBL",
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run APP (Normal BOOT: Reset Only)",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/run-normal.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Prepare APP Debug",
+            "dependsOn": ["Build FSBL", "Flash APP"],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        }
+    ]
+}

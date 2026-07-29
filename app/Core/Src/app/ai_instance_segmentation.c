@@ -2,13 +2,12 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "serial_console.h"
+#include "console_log.h"
 #include "stm32n6xx_ll_bus.h"
 #include "npu_cache.h"
 #include "app_postprocess.h"
 #include "app_config.h"
 #include "stai_network.h"
-#include <stdio.h>
 #include <string.h>
 
 #define AI_INPUT_BYTES (NN_WIDTH * NN_HEIGHT * NN_BPP)
@@ -21,8 +20,6 @@ static uint8_t *s_input;
 static iseg_pp_outBuffer_t s_boxes[AI_MAX_BOXES];
 static volatile uint32_t s_box_count;
 static const char *const s_classes[NN_CLASSES] = NN_CLASSES_TABLE;
-
-static void ai_log(const char *s) { (void)serial_console_write(s, (unsigned short)strlen(s)); }
 
 uint8_t *AIInstanceSegmentation_GetInputBuffer(void)
 {
@@ -90,7 +87,6 @@ static void ai_npu_init(void)
 
 void AIInstanceSegmentationTask(void *argument)
 {
-  char line[128];
   stai_network_info info;
   stai_ptr inputs[1] = {0};
   stai_ptr outputs[STAI_NETWORK_OUT_NUM] = {0};
@@ -113,7 +109,7 @@ void AIInstanceSegmentationTask(void *argument)
   configASSERT(info.inputs[0].size_bytes == AI_INPUT_BYTES);
   for (uint32_t i = 0; i < STAI_NETWORK_OUT_NUM; ++i) lengths[i] = info.outputs[i].size_bytes;
   configASSERT(app_postprocess_init(&pp, &info) == AI_ISEG_POSTPROCESS_ERROR_NO);
-  ai_log("ai: ready yolov8-seg / STEdgeAI 4\r\n");
+  LOG_INFO("ai: ready yolov8-seg / STEdgeAI 4\r\n");
 
   for (;;)
   {
@@ -130,15 +126,14 @@ void AIInstanceSegmentationTask(void *argument)
     memcpy(s_boxes, result.pOutBuff, s_box_count * sizeof(s_boxes[0]));
     taskEXIT_CRITICAL();
     if (s_box_count == 0U)
-    { (void)snprintf(line, sizeof(line), "ai: objects=0 pp=%ld\r\n", (long)err); ai_log(line); }
+    { LOG_WARN("ai: objects=0 pp=%ld\r\n", (long)err); }
     else for (uint32_t i = 0; i < s_box_count; ++i)
     {
       uint32_t cls = (uint32_t)s_boxes[i].class_index;
       uint32_t confidence = (uint32_t)(s_boxes[i].conf * 1000.0f + 0.5f);
-      (void)snprintf(line, sizeof(line), "ai: %s %lu.%03lu\r\n",
+      LOG_INFO("ai: %s %lu.%03lu\r\n",
         (cls < NN_CLASSES) ? s_classes[cls] : "unknown",
         (unsigned long)(confidence / 1000U), (unsigned long)(confidence % 1000U));
-      ai_log(line);
     }
     taskENTER_CRITICAL();
     s_ai_buffer_busy = 0U;
