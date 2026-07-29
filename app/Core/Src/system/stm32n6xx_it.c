@@ -1,4 +1,5 @@
 #include "stm32n6xx_it.h"
+#include "camera_demo.h"
 #include "serial_console.h"
 
 void NMI_Handler(void)
@@ -50,4 +51,9 @@ void DebugMon_Handler(void)
 void USART1_IRQHandler(void)
 {
   serial_console_irq_handler();
+}
+
+void DCMIPP_IRQHandler(void)
+{
+  CameraDemo_DCMIPP_IRQHandler();
 }

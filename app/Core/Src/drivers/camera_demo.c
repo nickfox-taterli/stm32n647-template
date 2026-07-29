@@ -80,6 +80,7 @@ static uint16_t s_camera_preview[CAMERA_PREVIEW_WIDTH * CAMERA_PREVIEW_HEIGHT]
   __attribute__((aligned(32)));
 static CameraDemoDebug s_camera_debug;
 static uint8_t s_ai_capture_armed;
+static TaskHandle_t s_camera_task;
 
 static CameraDemoControls s_active_controls =
 {
@@ -339,6 +340,14 @@ static void CameraDemo_ClockInit(void)
   LL_APB5_GRP1_ReleaseReset(LL_APB5_GRP1_PERIPH_DCMIPP | LL_APB5_GRP1_PERIPH_CSI);
 }
 
+static void CameraDemo_DCMIPPInterruptInit(void)
+{
+  NVIC_SetPriority(DCMIPP_IRQn,
+                   NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 6U, 0U));
+  NVIC_ClearPendingIRQ(DCMIPP_IRQn);
+  NVIC_EnableIRQ(DCMIPP_IRQn);
+}
+
 static CameraDemoStatus CameraDemo_CSIInit(void)
 {
   CameraDemo_ClockInit();
@@ -392,6 +401,8 @@ static CameraDemoStatus CameraDemo_CSIInit(void)
   DCMIPP->P1DMCR = DCMIPP_P1DMCR_ENABLE | DCMIPP_RAWBAYER_GBRG;
   DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_COVRF |
                   DCMIPP_P1FCR_CVSYNCF;
+  DCMIPP->P1IER = DCMIPP_P1IER_FRAMEIE;
+  CameraDemo_DCMIPPInterruptInit();
 
   /* Pipe2 branches after Pipe1 ISP. Crop the IMX415 image to a centered
    * square, resize in hardware and write packed RGB888 straight into the
@@ -448,20 +459,15 @@ static void CameraDemo_StartPipe1(void)
 
 static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
 {
-  TickType_t start = xTaskGetTickCount();
-
-  while ((DCMIPP->P1SR & DCMIPP_P1SR_FRAMEF) == 0U)
+  if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CAMERA_CAPTURE_TIMEOUT_MS)) == 0U)
   {
     if ((DCMIPP->P1SR & DCMIPP_P1SR_OVRF) != 0U)
     {
       CameraDemo_UpdateDebug();
       return CAMERA_DEMO_OVERRUN;
     }
-    if ((xTaskGetTickCount() - start) > pdMS_TO_TICKS(CAMERA_CAPTURE_TIMEOUT_MS))
-    {
-      CameraDemo_UpdateDebug();
-      return CAMERA_DEMO_FRAME_TIMEOUT;
-    }
+    CameraDemo_UpdateDebug();
+    return CAMERA_DEMO_FRAME_TIMEOUT;
   }
 
   CameraDemo_UpdateDebug();
@@ -483,6 +489,8 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
 
 CameraDemoStatus CameraDemo_Init(uint16_t *sensor_id)
 {
+  s_camera_task = xTaskGetCurrentTaskHandle();
+
   IMX415_BusInit();
   if (IMX415_ReadID(sensor_id) != IMX415_OK)
   {
@@ -521,6 +529,24 @@ CameraDemoStatus CameraDemo_Init(uint16_t *sensor_id)
   }
   CameraDemo_UpdateSensorDebug();
   return CAMERA_DEMO_OK;
+}
+
+void CameraDemo_DCMIPP_IRQHandler(void)
+{
+  BaseType_t higher_priority_task_woken = pdFALSE;
+  uint32_t status = DCMIPP->P1SR;
+
+  if (((status & DCMIPP_P1SR_FRAMEF) != 0U) &&
+      ((DCMIPP->P1IER & DCMIPP_P1IER_FRAMEIE) != 0U))
+  {
+    DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF;
+    if (s_camera_task != NULL)
+    {
+      vTaskNotifyGiveFromISR(s_camera_task, &higher_priority_task_woken);
+    }
+  }
+
+  portYIELD_FROM_ISR(higher_priority_task_woken);
 }
 
 /* ---- runtime control application (runs in camera task, owns I2C2 + DCMIPP) ---- */

@@ -68,6 +68,7 @@ typedef struct
 CameraDemoStatus CameraDemo_Init(uint16_t *sensor_id);
 CameraDemoStatus CameraDemo_CaptureToLcd(void);
 void CameraDemo_GetDebug(CameraDemoDebug *debug);
+void CameraDemo_DCMIPP_IRQHandler(void);
 
 /* ---- runtime control API (shell -> pending state, applied by camera task) ---- */
 CameraDemoStatus CameraDemo_SetExposureLines(uint32_t exposure_lines);
