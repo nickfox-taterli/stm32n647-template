@@ -11,7 +11,6 @@
 #include <string.h>
 
 #define AI_INPUT_BYTES (NN_WIDTH * NN_HEIGHT * NN_BPP)
-#define AI_INPUT_ROW_BYTES (NN_WIDTH * NN_BPP)
 #define AI_MAX_BOXES AI_YOLOV8_SEG_PP_MAX_BOXES_LIMIT
 
 STAI_NETWORK_CONTEXT_DECLARE(s_network_context, STAI_NETWORK_CONTEXT_SIZE);
@@ -23,22 +22,7 @@ static volatile uint32_t s_box_count;
 static volatile uint32_t s_result_sequence;
 static volatile uint8_t s_ai_ready;
 static volatile uint32_t s_ai_init_stage;
-static uint8_t s_camera_row_scratch[AI_INPUT_ROW_BYTES]
-  __attribute__((aligned(32)));
 static const char *const s_classes[NN_CLASSES] = NN_CLASSES_TABLE;
-
-static void AIInstanceSegmentation_FlipCameraFrameVertical(void)
-{
-  for (uint32_t y = 0U; y < (NN_HEIGHT / 2U); ++y)
-  {
-    uint8_t *top = &s_input[y * AI_INPUT_ROW_BYTES];
-    uint8_t *bottom = &s_input[(NN_HEIGHT - 1U - y) * AI_INPUT_ROW_BYTES];
-
-    memcpy(s_camera_row_scratch, top, AI_INPUT_ROW_BYTES);
-    memcpy(top, bottom, AI_INPUT_ROW_BYTES);
-    memcpy(bottom, s_camera_row_scratch, AI_INPUT_ROW_BYTES);
-  }
-}
 
 uint8_t *AIInstanceSegmentation_GetInputBuffer(void)
 {
@@ -68,12 +52,9 @@ void AIInstanceSegmentation_SubmitCameraFrame(void)
   if ((s_ai_task != NULL) && (s_ai_ready != 0U))
   {
     /* DCMIPP has just written the buffer. Cleaning here could write stale
-     * cache lines back over the fresh DMA data; invalidate first. The sensor
-     * is mounted with its vertical readout opposite to the LCD/model view,
-     * so make the tensor match the vertically corrected preview. */
+     * cache lines back over the fresh DMA data; invalidate instead. The IMX415
+     * VREVERSE setting now makes the sensor output match the LCD/model view. */
     SCB_InvalidateDCache_by_Addr((uint32_t *)s_input, AI_INPUT_BYTES);
-    AIInstanceSegmentation_FlipCameraFrameVertical();
-    SCB_CleanDCache_by_Addr((uint32_t *)s_input, AI_INPUT_BYTES);
     xTaskNotifyGive(s_ai_task);
   }
 }

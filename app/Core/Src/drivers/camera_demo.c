@@ -23,7 +23,12 @@
 #define CAMERA_PREVIEW_PITCH_BYTES   (CAMERA_PREVIEW_WIDTH * sizeof(uint16_t))
 #define CAMERA_PREVIEW_BYTES         (CAMERA_PREVIEW_PITCH_BYTES * CAMERA_PREVIEW_HEIGHT)
 #define CAMERA_CAPTURE_TIMEOUT_MS    1000U
-#define CAMERA_PIPE2_WAIT_MS         20U
+#define CAMERA_NOTIFY_P1_FRAME       (1UL << 0)
+#define CAMERA_NOTIFY_P2_FRAME       (1UL << 1)
+#define CAMERA_NOTIFY_P2_OVERRUN     (1UL << 2)
+#define CAMERA_NOTIFY_ALL             (CAMERA_NOTIFY_P1_FRAME | \
+                                      CAMERA_NOTIFY_P2_FRAME | \
+                                      CAMERA_NOTIFY_P2_OVERRUN)
 /* Keep the camera scaler synchronized with the generated model input. */
 #define CAMERA_AI_WIDTH              NN_WIDTH
 #define CAMERA_AI_HEIGHT             NN_HEIGHT
@@ -175,8 +180,8 @@ static void CameraDemo_CopyPreviewToLcd(void)
    * partially black frames and causes severe flicker. */
   for (uint32_t y = 0; y < CAMERA_PREVIEW_HEIGHT; y++)
   {
-    /* The panel scan direction is opposite to the IMX415/ISP line order. */
-    uint32_t sy = CAMERA_PREVIEW_HEIGHT - 1U - y;
+    /* IMX415 VREVERSE has already corrected the sensor line order. */
+    uint32_t sy = y;
     const uint16_t *src = &s_camera_preview[sy * CAMERA_PREVIEW_WIDTH];
     uint16_t *dst = &fb[y * RGB_LCD_WIDTH];
 
@@ -402,6 +407,8 @@ static CameraDemoStatus CameraDemo_CSIInit(void)
                       (DCMIPP_DOWNSIZE_VRATIO << DCMIPP_P1DSRTIOR_VRATIO_Pos);
   DCMIPP->P1DSSZR = (CAMERA_PREVIEW_WIDTH << DCMIPP_P1DSSZR_HSIZE_Pos) |
                     (CAMERA_PREVIEW_HEIGHT << DCMIPP_P1DSSZR_VSIZE_Pos);
+  /* Keep the Bayer phase validated with this IMX415 module. VREVERSE changes
+   * line order on this board but does not require changing this ISP setting. */
   DCMIPP->P1DMCR = DCMIPP_P1DMCR_ENABLE | DCMIPP_RAWBAYER_GBRG;
   DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_COVRF |
                   DCMIPP_P1FCR_CVSYNCF;
@@ -430,6 +437,7 @@ static CameraDemoStatus CameraDemo_CSIInit(void)
   DCMIPP->P2PPM0PR = CAMERA_AI_PITCH_BYTES;
   DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_COVRF |
                   DCMIPP_P2FCR_CVSYNCF;
+  DCMIPP->P2IER = DCMIPP_P2IER_FRAMEIE | DCMIPP_P2IER_OVRIE;
 
   return CAMERA_DEMO_OK;
 }
@@ -437,6 +445,12 @@ static CameraDemoStatus CameraDemo_CSIInit(void)
 static void CameraDemo_StartPipe1(void)
 {
   uint8_t *ai_input = AIInstanceSegmentation_GetInputBuffer();
+  uint32_t stale_notifications;
+
+  /* P1/P2 completion is delivered as event bits. Discard anything left by a
+   * previous snapshot before arming this one. */
+  (void)xTaskNotifyWait(CAMERA_NOTIFY_ALL, CAMERA_NOTIFY_ALL,
+                        &stale_notifications, 0U);
 
   SCB_CleanInvalidateDCache_by_Addr((uint32_t *)s_camera_preview, sizeof(s_camera_preview));
   CameraDemo_UpdatePipe1Rois();
@@ -463,15 +477,59 @@ static void CameraDemo_StartPipe1(void)
 
 static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
 {
-  if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CAMERA_CAPTURE_TIMEOUT_MS)) == 0U)
+  uint32_t events = 0U;
+  uint32_t needed = CAMERA_NOTIFY_P1_FRAME;
+  TickType_t start = xTaskGetTickCount();
+
+  if (s_ai_capture_armed != 0U)
   {
-    if ((DCMIPP->P1SR & DCMIPP_P1SR_OVRF) != 0U)
+    needed |= CAMERA_NOTIFY_P2_FRAME;
+  }
+
+  while ((events & needed) != needed)
+  {
+    TickType_t elapsed = xTaskGetTickCount() - start;
+    TickType_t remaining = pdMS_TO_TICKS(CAMERA_CAPTURE_TIMEOUT_MS);
+    uint32_t notification;
+
+    if (elapsed >= remaining)
     {
       CameraDemo_UpdateDebug();
+      if (s_ai_capture_armed != 0U)
+      {
+        AIInstanceSegmentation_CancelFrame();
+        s_ai_capture_armed = 0U;
+      }
+      if ((events & CAMERA_NOTIFY_P2_OVERRUN) != 0U)
+      {
+        return CAMERA_DEMO_OVERRUN;
+      }
+      return CAMERA_DEMO_FRAME_TIMEOUT;
+    }
+
+    remaining -= elapsed;
+    if (xTaskNotifyWait(0U, CAMERA_NOTIFY_ALL, &notification, remaining) == pdFALSE)
+    {
+      CameraDemo_UpdateDebug();
+      if (s_ai_capture_armed != 0U)
+      {
+        AIInstanceSegmentation_CancelFrame();
+        s_ai_capture_armed = 0U;
+      }
+      return CAMERA_DEMO_FRAME_TIMEOUT;
+    }
+    events |= notification;
+
+    if ((events & CAMERA_NOTIFY_P2_OVERRUN) != 0U)
+    {
+      CameraDemo_UpdateDebug();
+      if (s_ai_capture_armed != 0U)
+      {
+        AIInstanceSegmentation_CancelFrame();
+        s_ai_capture_armed = 0U;
+      }
       return CAMERA_DEMO_OVERRUN;
     }
-    CameraDemo_UpdateDebug();
-    return CAMERA_DEMO_FRAME_TIMEOUT;
   }
 
   CameraDemo_UpdateDebug();
@@ -480,40 +538,11 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
    * I2C2), so `cam status` can cross-check the cache against live hardware
    * without the shell task ever touching the I2C bus. */
   CameraDemo_UpdateSensorDebug();
-  DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_CVSYNCF;
   CameraDemo_CopyPreviewToLcd();
-  if (s_ai_capture_armed != 0U)
+  if ((s_ai_capture_armed != 0U) &&
+      ((events & CAMERA_NOTIFY_P2_FRAME) != 0U))
   {
-    TickType_t start = xTaskGetTickCount();
-
-    /* Pipe1 and Pipe2 finish independently. FRAMEF may already be set when
-     * the Pipe1 interrupt wakes this task, so preserve it until the frame has
-     * been handed to AI. Clearing it here would wait for a second completion
-     * from a one-shot capture request. */
-    while ((DCMIPP->P2SR & DCMIPP_P2SR_FRAMEF) == 0U)
-    {
-      if ((DCMIPP->P2SR & DCMIPP_P2SR_OVRF) != 0U)
-      {
-        break;
-      }
-      if ((xTaskGetTickCount() - start) >= pdMS_TO_TICKS(CAMERA_PIPE2_WAIT_MS))
-      {
-        break;
-      }
-      taskYIELD();
-    }
-
-    if ((DCMIPP->P2SR & DCMIPP_P2SR_FRAMEF) != 0U)
-    {
-      DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_CVSYNCF;
-      AIInstanceSegmentation_SubmitCameraFrame();
-    }
-    else
-    {
-      AIInstanceSegmentation_CancelFrame();
-      LOG_WARN("camera: pipe2 frame missing, p2sr=0x%08lx\r\n",
-               (unsigned long)DCMIPP->P2SR);
-    }
+    AIInstanceSegmentation_SubmitCameraFrame();
   }
   return CAMERA_DEMO_OK;
 }
@@ -565,16 +594,35 @@ CameraDemoStatus CameraDemo_Init(uint16_t *sensor_id)
 void CameraDemo_DCMIPP_IRQHandler(void)
 {
   BaseType_t higher_priority_task_woken = pdFALSE;
-  uint32_t status = DCMIPP->P1SR;
+  uint32_t status1 = DCMIPP->P1SR;
+  uint32_t status2 = DCMIPP->P2SR;
+  uint32_t events = 0U;
 
-  if (((status & DCMIPP_P1SR_FRAMEF) != 0U) &&
+  if (((status1 & DCMIPP_P1SR_FRAMEF) != 0U) &&
       ((DCMIPP->P1IER & DCMIPP_P1IER_FRAMEIE) != 0U))
   {
     DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF;
-    if (s_camera_task != NULL)
-    {
-      vTaskNotifyGiveFromISR(s_camera_task, &higher_priority_task_woken);
-    }
+    events |= CAMERA_NOTIFY_P1_FRAME;
+  }
+
+  if (((status2 & DCMIPP_P2SR_FRAMEF) != 0U) &&
+      ((DCMIPP->P2IER & DCMIPP_P2IER_FRAMEIE) != 0U))
+  {
+    DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF;
+    events |= CAMERA_NOTIFY_P2_FRAME;
+  }
+
+  if (((status2 & DCMIPP_P2SR_OVRF) != 0U) &&
+      ((DCMIPP->P2IER & DCMIPP_P2IER_OVRIE) != 0U))
+  {
+    DCMIPP->P2FCR = DCMIPP_P2FCR_COVRF;
+    events |= CAMERA_NOTIFY_P2_OVERRUN;
+  }
+
+  if ((events != 0U) && (s_camera_task != NULL))
+  {
+    (void)xTaskNotifyFromISR(s_camera_task, events, eSetBits,
+                             &higher_priority_task_woken);
   }
 
   portYIELD_FROM_ISR(higher_priority_task_woken);
@@ -876,7 +924,7 @@ CameraDemoStatus CameraDemo_RestoreDefaults(void)
   s_pending_controls.wb_r_x1000 = CAMERA_WB_DEFAULT_R_X1000;
   s_pending_controls.wb_g_x1000 = CAMERA_WB_DEFAULT_G_X1000;
   s_pending_controls.wb_b_x1000 = CAMERA_WB_DEFAULT_B_X1000;
-  s_pending_controls.bayer = CAMERA_BAYER_GBRG;
+    s_pending_controls.bayer = CAMERA_BAYER_GBRG;
   s_pending_controls.test_pattern = IMX415_TEST_PATTERN_OFF;
   s_pending_controls.swap_rb = 0U;
   s_control_dirty |= CAMERA_CTRL_DIRTY_ALL;

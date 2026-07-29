@@ -54,7 +54,8 @@ typedef struct
 static const IMX415_Reg imx415_init_regs[] = {
   {0x301CU, 0x00U, 1U},
   {0x3022U, 0x00U, 1U},
-  {0x3030U, 0x00U, 1U},
+  /* VREVERSE=1: the sensor is mounted vertically inverted on the board. */
+  {0x3030U, 0x02U, 1U},
   {0x3031U, 0x00U, 1U},
   {0x3032U, 0x00U, 1U},
   {0x30C0U, 0x22U, 1U},
