@@ -13,7 +13,9 @@
 - **调试器必须用 ST-LINK**。本芯片只能用 ST-LINK 下载/调试；
   CMSIS-DAP 探针（如 H7-TOOL, `c251:f00a`）连不上——SWD 会全程 `JUNK`。
   当前已连 **ST-LINK/V2-1**（`0483:374b`），目标电压 ~3.25V。
-- 串口：板载 CH340 → `/dev/ttyUSB0`，波特率 **115200**（APP 的 Letter Shell）。
+- 串口：外接 WCH USB-UART，波特率 **115200**（APP 的 Letter Shell）。设备名
+  可能是 `/dev/ttyUSB*` 或 `/dev/ttyACM*`，以 by-id 中标记为 WCH/CH34x/CH910x
+  的设备为准；`/dev/ttyACM0` 若显示为 STMicroelectronics ST-Link，则不是 WCH 串口。
 
 ## 1. 环境（一次性，已配好）
 
@@ -57,7 +59,12 @@ cmake --build app/build -j
 /root/code/archive/openocd/src/openocd \
   -s /root/code/archive/openocd/tcl -s /root/code/atk-n647/st_n6/.vscode \
   -f /root/code/atk-n647/st_n6/.vscode/openocd/boot_app_via_fsbl.cfg
-picocom -b 115200 /dev/ttyUSB0     # 见 Banner + 提示符 stm32n6:/$
+ls -l /dev/serial/by-id/
+WCH_UART="$(readlink -f /dev/serial/by-id/*WCH* 2>/dev/null | head -n 1)"
+test -n "$WCH_UART" && picocom -b 115200 "$WCH_UART"
+# 若设备没有 WCH 字样，用 udevadm info --query=all --name=/dev/ttyUSB0
+# 或 --name=/dev/ttyACM0 找到实际的 CH34x/CH910x 端口。
+# 预期可见 Banner + 提示符 stm32n6:/$
 ```
 
 ## 5. 调试（gdb-multiarch + OpenOCD gdbserver）

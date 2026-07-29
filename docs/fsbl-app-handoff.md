@@ -5,6 +5,7 @@
 ```text
 签名 FSBL        0x70000000
 APP 向量表       0x70010000
+静态演示 BMP     0x71800000
 模型权重         0x71C00000（地址已写入 network-data.hex）
 RAM FSBL 向量表  0x34180400（仅 JTAG BOOT）
 ```
@@ -31,11 +32,16 @@ FSBL 先调用 `NORFlash_EnableMemoryMappedMode()` 把 XSPI2 映射到
 ./scripts/flash-app.sh
 ./scripts/flash-fsbl.sh
 ./scripts/flash-model.sh
+./scripts/flash-image.sh
 ```
 
 烧录使用 CubeProgrammer、`loader/ExtMemLoader.stldr`、under-reset 连接和
 写后校验；瞬时连接失败默认重试三次。可设置 `STLINK_SN` 选择探针、
 `SWD_FREQ` 修改频率、`PROGRAM_RETRIES` 修改重试次数。
+
+静态演示图片由 `demo.jpeg` 转换为 `assets/demo.bmp`，由
+`scripts/flash-image.sh` 写入 `0x71800000`；`scripts/flash.sh` 会自动同时烧录
+模型、图片、APP 和 FSBL。
 
 ## 两种运行方式
 

@@ -61,6 +61,8 @@ typedef struct
   uint32_t dcmipp_p1cmricr;
   uint32_t dcmipp_p1ri1cr1;
   uint32_t dcmipp_p1ri1cr2;
+  uint32_t dcmipp_p2sr;
+  uint32_t dcmipp_p2ppcr;
   uint16_t fb_min;
   uint16_t fb_max;
 } CameraDemoDebug;

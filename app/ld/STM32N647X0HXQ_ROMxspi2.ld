@@ -12,7 +12,8 @@ MEMORY
    * Memory window: 0x70000000
    */
   /* Reserve the final 4 MiB (0x71C00000..0x71FFFFFF) for NPU weights. */
-  ROM     (rx)  : ORIGIN = 0x70010000, LENGTH = 0x1BF0000
+  /* Reserve 4 MiB at 0x71800000 for the static demo BMP. */
+  ROM     (rx)  : ORIGIN = 0x70010000, LENGTH = 0x17F0000
 
   /*
    * XSPI1 HyperRAM: physical 32MiB

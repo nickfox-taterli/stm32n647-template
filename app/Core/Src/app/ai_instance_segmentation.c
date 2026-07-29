@@ -11,6 +11,7 @@
 #include <string.h>
 
 #define AI_INPUT_BYTES (NN_WIDTH * NN_HEIGHT * NN_BPP)
+#define AI_INPUT_ROW_BYTES (NN_WIDTH * NN_BPP)
 #define AI_MAX_BOXES AI_YOLOV8_SEG_PP_MAX_BOXES_LIMIT
 
 STAI_NETWORK_CONTEXT_DECLARE(s_network_context, STAI_NETWORK_CONTEXT_SIZE);
@@ -19,7 +20,25 @@ static volatile uint32_t s_ai_buffer_busy;
 static uint8_t *s_input;
 static iseg_pp_outBuffer_t s_boxes[AI_MAX_BOXES];
 static volatile uint32_t s_box_count;
+static volatile uint32_t s_result_sequence;
+static volatile uint8_t s_ai_ready;
+static volatile uint32_t s_ai_init_stage;
+static uint8_t s_camera_row_scratch[AI_INPUT_ROW_BYTES]
+  __attribute__((aligned(32)));
 static const char *const s_classes[NN_CLASSES] = NN_CLASSES_TABLE;
+
+static void AIInstanceSegmentation_FlipCameraFrameVertical(void)
+{
+  for (uint32_t y = 0U; y < (NN_HEIGHT / 2U); ++y)
+  {
+    uint8_t *top = &s_input[y * AI_INPUT_ROW_BYTES];
+    uint8_t *bottom = &s_input[(NN_HEIGHT - 1U - y) * AI_INPUT_ROW_BYTES];
+
+    memcpy(s_camera_row_scratch, top, AI_INPUT_ROW_BYTES);
+    memcpy(top, bottom, AI_INPUT_ROW_BYTES);
+    memcpy(bottom, s_camera_row_scratch, AI_INPUT_ROW_BYTES);
+  }
+}
 
 uint8_t *AIInstanceSegmentation_GetInputBuffer(void)
 {
@@ -36,7 +55,67 @@ uint8_t *AIInstanceSegmentation_GetInputBuffer(void)
 
 void AIInstanceSegmentation_SubmitFrame(void)
 {
-  if (s_ai_task != NULL) xTaskNotifyGive(s_ai_task);
+  if ((s_ai_task != NULL) && (s_ai_ready != 0U))
+  {
+    /* This entry point is for CPU-written input, such as the static BMP. */
+    SCB_CleanDCache_by_Addr((uint32_t *)s_input, AI_INPUT_BYTES);
+    xTaskNotifyGive(s_ai_task);
+  }
+}
+
+void AIInstanceSegmentation_SubmitCameraFrame(void)
+{
+  if ((s_ai_task != NULL) && (s_ai_ready != 0U))
+  {
+    /* DCMIPP has just written the buffer. Cleaning here could write stale
+     * cache lines back over the fresh DMA data; invalidate first. The sensor
+     * is mounted with its vertical readout opposite to the LCD/model view,
+     * so make the tensor match the vertically corrected preview. */
+    SCB_InvalidateDCache_by_Addr((uint32_t *)s_input, AI_INPUT_BYTES);
+    AIInstanceSegmentation_FlipCameraFrameVertical();
+    SCB_CleanDCache_by_Addr((uint32_t *)s_input, AI_INPUT_BYTES);
+    xTaskNotifyGive(s_ai_task);
+  }
+}
+
+void AIInstanceSegmentation_CancelFrame(void)
+{
+  taskENTER_CRITICAL();
+  s_ai_buffer_busy = 0U;
+  taskEXIT_CRITICAL();
+}
+
+uint8_t AIInstanceSegmentation_IsReady(void)
+{
+  return s_ai_ready;
+}
+
+uint32_t AIInstanceSegmentation_GetResultSequence(void)
+{
+  uint32_t sequence;
+
+  taskENTER_CRITICAL();
+  sequence = s_result_sequence;
+  taskEXIT_CRITICAL();
+  return sequence;
+}
+
+uint8_t AIInstanceSegmentation_WaitForResult(uint32_t previous_sequence,
+                                             uint32_t timeout_ms)
+{
+  TickType_t start = xTaskGetTickCount();
+  TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
+
+  while (AIInstanceSegmentation_GetResultSequence() == previous_sequence)
+  {
+    if ((timeout != portMAX_DELAY) &&
+        ((xTaskGetTickCount() - start) >= timeout))
+    {
+      return 0U;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1U));
+  }
+  return 1U;
 }
 
 uint32_t AIInstanceSegmentation_GetBoxes(AIInstanceSegmentationBox *boxes,
@@ -93,18 +172,31 @@ void AIInstanceSegmentationTask(void *argument)
   (void)argument;
 
   s_ai_task = xTaskGetCurrentTaskHandle();
+  s_ai_init_stage = 1U;
+  LOG_INFO("ai: task started\r\n");
   ai_npu_init();
+  s_ai_init_stage = 2U;
+  LOG_INFO("ai: npu initialized\r\n");
   configASSERT(stai_runtime_init() == STAI_SUCCESS);
+  s_ai_init_stage = 3U;
+  LOG_INFO("ai: runtime initialized\r\n");
   configASSERT(stai_network_init(s_network_context) == STAI_SUCCESS);
+  s_ai_init_stage = 4U;
+  LOG_INFO("ai: network initialized\r\n");
   configASSERT(stai_network_get_info(s_network_context, &info) == STAI_SUCCESS);
+  s_ai_init_stage = 5U;
   configASSERT((info.n_inputs == 1U) && (info.n_outputs == STAI_NETWORK_OUT_NUM));
   configASSERT(stai_network_get_inputs(s_network_context, inputs, &n_inputs) == STAI_SUCCESS);
+  s_ai_init_stage = 6U;
   configASSERT(stai_network_get_outputs(s_network_context, outputs, &n_outputs) == STAI_SUCCESS);
   configASSERT((n_inputs == 1U) && (n_outputs == STAI_NETWORK_OUT_NUM));
   s_input = (uint8_t *)inputs[0];
   configASSERT(info.inputs[0].size_bytes == AI_INPUT_BYTES);
   for (uint32_t i = 0; i < STAI_NETWORK_OUT_NUM; ++i) lengths[i] = info.outputs[i].size_bytes;
+  s_ai_init_stage = 7U;
   configASSERT(app_postprocess_init(&pp, &info) == AI_ISEG_POSTPROCESS_ERROR_NO);
+  s_ai_ready = 1U;
+  s_ai_init_stage = 8U;
   LOG_INFO("ai: ready yolov8-seg / STEdgeAI 4\r\n");
 
   for (;;)
@@ -120,6 +212,7 @@ void AIInstanceSegmentationTask(void *argument)
     s_box_count = ((err == 0) && (result.nb_detect > 0))
       ? ((result.nb_detect > AI_MAX_BOXES) ? AI_MAX_BOXES : (uint32_t)result.nb_detect) : 0U;
     memcpy(s_boxes, result.pOutBuff, s_box_count * sizeof(s_boxes[0]));
+    s_result_sequence++;
     taskEXIT_CRITICAL();
     if (s_box_count == 0U)
     { LOG_WARN("ai: objects=0 pp=%ld\r\n", (long)err); }

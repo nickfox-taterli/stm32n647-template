@@ -60,6 +60,7 @@ set(APP_SRCS
     Core/Src/app/main.c
     Core/Src/app/app_tasks.c
     Core/Src/app/ai_instance_segmentation.c
+    Core/Src/app/static_image_demo.c
     Core/Src/drivers/board_init.c
     Core/Src/drivers/camera_demo.c
     Core/Src/drivers/imx415.c

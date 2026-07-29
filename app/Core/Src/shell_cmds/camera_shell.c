@@ -148,6 +148,8 @@ static int cam_cmd_status(int argc, char **argv)
   P("  P1ROI1  = 0x%08lx/0x%08lx\r\n",
     (unsigned long)dbg.dcmipp_p1ri1cr1,
     (unsigned long)dbg.dcmipp_p1ri1cr2);
+  P("  P2SR    = 0x%08lx\r\n", (unsigned long)dbg.dcmipp_p2sr);
+  P("  P2PPCR  = 0x%08lx\r\n", (unsigned long)dbg.dcmipp_p2ppcr);
 
   P("capture:\r\n");
   P("  CSI SR0  = 0x%08lx\r\n", (unsigned long)dbg.csi_sr0);

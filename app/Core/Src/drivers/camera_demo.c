@@ -9,6 +9,7 @@
 #include "rgb_lcd.h"
 #include "ai_instance_segmentation.h"
 #include "app_config.h"
+#include "console_log.h"
 #include "stm32n647xx.h"
 #include "stm32n6xx_ll_bus.h"
 #include "stm32n6xx_ll_rcc.h"
@@ -22,6 +23,7 @@
 #define CAMERA_PREVIEW_PITCH_BYTES   (CAMERA_PREVIEW_WIDTH * sizeof(uint16_t))
 #define CAMERA_PREVIEW_BYTES         (CAMERA_PREVIEW_PITCH_BYTES * CAMERA_PREVIEW_HEIGHT)
 #define CAMERA_CAPTURE_TIMEOUT_MS    1000U
+#define CAMERA_PIPE2_WAIT_MS         20U
 /* Keep the camera scaler synchronized with the generated model input. */
 #define CAMERA_AI_WIDTH              NN_WIDTH
 #define CAMERA_AI_HEIGHT             NN_HEIGHT
@@ -134,6 +136,8 @@ static void CameraDemo_UpdateDebug(void)
   s_camera_debug.dcmipp_p1cmricr = DCMIPP->P1CMRICR;
   s_camera_debug.dcmipp_p1ri1cr1 = DCMIPP->P1RIxCR1;
   s_camera_debug.dcmipp_p1ri1cr2 = DCMIPP->P1RIxCR2;
+  s_camera_debug.dcmipp_p2sr = DCMIPP->P2SR;
+  s_camera_debug.dcmipp_p2ppcr = DCMIPP->P2PPCR;
 }
 
 static void CameraDemo_UpdateFrameBufferStats(void)
@@ -420,9 +424,9 @@ static CameraDemoStatus CameraDemo_CSIInit(void)
                       (CAMERA_AI_VRATIO << DCMIPP_P2DSRTIOR_VRATIO_Pos);
   DCMIPP->P2DSSZR = (CAMERA_AI_WIDTH << DCMIPP_P2DSSZR_HSIZE_Pos) |
                     (CAMERA_AI_HEIGHT << DCMIPP_P2DSSZR_VSIZE_Pos);
-  /* The 993 model was exported for the channel order selected by the
-   * reference project's enable_swap=1 setting. */
-  DCMIPP->P2PPCR = DCMIPP_P2PPCR_SWAPRB; /* RGB888, one memory plane. */
+  /* The static-image path writes RGB bytes in R,G,B order. Keep the camera
+   * tensor in the same order; `cam swaprb` can opt into B,R swapping. */
+  DCMIPP->P2PPCR = 0U; /* RGB888, one memory plane. */
   DCMIPP->P2PPM0PR = CAMERA_AI_PITCH_BYTES;
   DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_COVRF |
                   DCMIPP_P2FCR_CVSYNCF;
@@ -478,11 +482,38 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
   CameraDemo_UpdateSensorDebug();
   DCMIPP->P1FCR = DCMIPP_P1FCR_CFRAMEF | DCMIPP_P1FCR_CVSYNCF;
   CameraDemo_CopyPreviewToLcd();
-  if ((s_ai_capture_armed != 0U) &&
-      ((DCMIPP->P2SR & DCMIPP_P2SR_FRAMEF) != 0U))
+  if (s_ai_capture_armed != 0U)
   {
-    DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_CVSYNCF;
-    AIInstanceSegmentation_SubmitFrame();
+    TickType_t start = xTaskGetTickCount();
+
+    /* Pipe1 and Pipe2 finish independently. FRAMEF may already be set when
+     * the Pipe1 interrupt wakes this task, so preserve it until the frame has
+     * been handed to AI. Clearing it here would wait for a second completion
+     * from a one-shot capture request. */
+    while ((DCMIPP->P2SR & DCMIPP_P2SR_FRAMEF) == 0U)
+    {
+      if ((DCMIPP->P2SR & DCMIPP_P2SR_OVRF) != 0U)
+      {
+        break;
+      }
+      if ((xTaskGetTickCount() - start) >= pdMS_TO_TICKS(CAMERA_PIPE2_WAIT_MS))
+      {
+        break;
+      }
+      taskYIELD();
+    }
+
+    if ((DCMIPP->P2SR & DCMIPP_P2SR_FRAMEF) != 0U)
+    {
+      DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_CVSYNCF;
+      AIInstanceSegmentation_SubmitCameraFrame();
+    }
+    else
+    {
+      AIInstanceSegmentation_CancelFrame();
+      LOG_WARN("camera: pipe2 frame missing, p2sr=0x%08lx\r\n",
+               (unsigned long)DCMIPP->P2SR);
+    }
   }
   return CAMERA_DEMO_OK;
 }
