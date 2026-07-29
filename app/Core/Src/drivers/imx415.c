@@ -166,13 +166,6 @@ static const IMX415_Reg imx415_init_regs[] = {
   {0x3390U, 0x01U, 1U},
 };
 
-/* Runtime cache of the sensor controls. Written by the camera task only (which
- * owns I2C2), read back by the getters used by `cam status`. */
-static uint32_t s_imx415_vmax_lines = IMX415_DEMO_VMAX_LINES;
-static uint32_t s_imx415_exposure_lines = IMX415_DEMO_EXPOSURE_LINES;
-static uint16_t s_imx415_analog_gain = IMX415_DEMO_ANALOG_GAIN;
-static IMX415_TestPattern s_imx415_test_pattern = IMX415_TEST_PATTERN_OFF;
-
 static IMX415_Status IMX415_WaitFlag(uint32_t (*flag)(const I2C_TypeDef *))
 {
   TickType_t start = xTaskGetTickCount();
@@ -411,63 +404,7 @@ IMX415_Status IMX415_InitStream(void)
   return IMX415_OK;
 }
 
-IMX415_Status IMX415_SetExposureLines(uint32_t exposure_lines)
-{
-  if ((exposure_lines < IMX415_EXPOSURE_MIN_LINES) ||
-      (exposure_lines > (s_imx415_vmax_lines - IMX415_EXPOSURE_OFFSET_LINES)))
-  {
-    return IMX415_ERROR;
-  }
-
-  uint32_t shr0 = s_imx415_vmax_lines - exposure_lines;
-  IMX415_Status status = IMX415_ERROR;
-
-  /* Hold the group so SHR0 lands on a clean frame boundary. */
-  if (IMX415_WriteLe(IMX415_REGHOLD, IMX415_REGHOLD_VALID, 1U) == IMX415_OK)
-  {
-    if (IMX415_WriteLe(IMX415_SHR0, shr0, 3U) == IMX415_OK)
-    {
-      status = IMX415_OK;
-    }
-    /* Always release the hold, even when the SHR0 write failed. */
-    (void)IMX415_WriteLe(IMX415_REGHOLD, IMX415_REGHOLD_INVALID, 1U);
-  }
-
-  if (status == IMX415_OK)
-  {
-    s_imx415_exposure_lines = exposure_lines;
-  }
-  return status;
-}
-
-IMX415_Status IMX415_SetAnalogGain(uint16_t gain)
-{
-  /* gain is unsigned, so IMX415_ANALOG_GAIN_MIN (0) is the natural floor;
-   * only the upper bound is a real constraint here. */
-  if (gain > IMX415_ANALOG_GAIN_MAX)
-  {
-    return IMX415_ERROR;
-  }
-
-  IMX415_Status status = IMX415_ERROR;
-
-  if (IMX415_WriteLe(IMX415_REGHOLD, IMX415_REGHOLD_VALID, 1U) == IMX415_OK)
-  {
-    if (IMX415_WriteLe(IMX415_GAIN_PCG_0, (uint32_t)gain, 2U) == IMX415_OK)
-    {
-      status = IMX415_OK;
-    }
-    (void)IMX415_WriteLe(IMX415_REGHOLD, IMX415_REGHOLD_INVALID, 1U);
-  }
-
-  if (status == IMX415_OK)
-  {
-    s_imx415_analog_gain = gain;
-  }
-  return status;
-}
-
-IMX415_Status IMX415_SetTestPattern(IMX415_TestPattern pattern)
+static IMX415_Status IMX415_SetTestPattern(IMX415_TestPattern pattern)
 {
   IMX415_Status status;
 
@@ -556,10 +493,6 @@ IMX415_Status IMX415_SetTestPattern(IMX415_TestPattern pattern)
       break;
   }
 
-  if (status == IMX415_OK)
-  {
-    s_imx415_test_pattern = pattern;
-  }
   return status;
 }
 
@@ -569,84 +502,6 @@ IMX415_Status IMX415_EnableTestPattern(uint8_t enable)
   return IMX415_SetTestPattern(enable != 0U ? IMX415_TEST_PATTERN_HORIZONTAL_COLOR_BAR
                                             : IMX415_TEST_PATTERN_OFF);
 }
-
-IMX415_Status IMX415_GetExposureLines(uint32_t *exposure_lines)
-{
-  if (exposure_lines == 0)
-  {
-    return IMX415_ERROR;
-  }
-  *exposure_lines = s_imx415_exposure_lines;
-  return IMX415_OK;
-}
-
-IMX415_Status IMX415_GetAnalogGain(uint16_t *gain)
-{
-  if (gain == 0)
-  {
-    return IMX415_ERROR;
-  }
-  *gain = s_imx415_analog_gain;
-  return IMX415_OK;
-}
-
-IMX415_Status IMX415_GetTestPattern(IMX415_TestPattern *pattern)
-{
-  if (pattern == 0)
-  {
-    return IMX415_ERROR;
-  }
-  *pattern = s_imx415_test_pattern;
-  return IMX415_OK;
-}
-
-static uint32_t IMX415_ReadLe(uint16_t reg, uint8_t width, IMX415_Status *status)
-{
-  uint8_t data[3] = {0U, 0U, 0U};
-  uint32_t value = 0U;
-
-  if (IMX415_ReadBytes(reg, data, width) == IMX415_OK)
-  {
-    for (uint8_t i = 0U; i < width; i++)
-    {
-      value |= ((uint32_t)data[i]) << (8U * i);
-    }
-  }
-  else
-  {
-    *status = IMX415_ERROR;
-  }
-
-  return value;
-}
-
-IMX415_Status IMX415_GetDebugRegisters(IMX415_DebugRegisters *registers)
-{
-  IMX415_Status status = IMX415_OK;
-
-  if (registers == 0)
-  {
-    return IMX415_ERROR;
-  }
-
-  registers->vmax = 0U;
-  registers->shr0 = 0U;
-  registers->gain = 0U;
-  registers->blklevel = 0U;
-  registers->tpg_en = 0U;
-  registers->tpg_sel = 0U;
-
-  registers->vmax = IMX415_ReadLe(IMX415_VMAX, 3U, &status);
-  registers->shr0 = IMX415_ReadLe(IMX415_SHR0, 3U, &status);
-  registers->gain = (uint16_t)IMX415_ReadLe(IMX415_GAIN_PCG_0, 2U, &status);
-  registers->blklevel = (uint16_t)IMX415_ReadLe(IMX415_BLKLEVEL, 2U, &status);
-  registers->tpg_en = (uint8_t)IMX415_ReadLe(IMX415_TPG_EN_DUOUT, 1U, &status);
-  registers->tpg_sel = (uint8_t)IMX415_ReadLe(IMX415_TPG_PATSEL_DUOUT, 1U, &status);
-
-  registers->read_status = status;
-  return status;
-}
-
 
 IMX415_Status IMX415_StartStream(void)
 {

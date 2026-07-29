@@ -9,7 +9,6 @@
 #include "rgb_lcd.h"
 #include "ai_instance_segmentation.h"
 #include "app_config.h"
-#include "console_log.h"
 #include "stm32n647xx.h"
 #include "stm32n6xx_ll_bus.h"
 #include "stm32n6xx_ll_rcc.h"
@@ -41,8 +40,7 @@
 #define CAMERA_AI_VDIV               ((CAMERA_AI_HEIGHT * 1023U + CAMERA_AI_CROP_SIZE / 2U) / CAMERA_AI_CROP_SIZE)
 #define CAMERA_PIPE1_ROI_COUNT       8U
 #define CAMERA_PIPE1_ROI_LINE_SIZE   1U /* 2 pixels, encoded as 01. */
-/* Boot with the sensor in normal (non-pattern) mode; TPG is toggled at runtime
- * via `cam tpg`. The pending-controls apply on frame 1 keeps this in sync. */
+/* Boot with the sensor in normal (non-pattern) mode. */
 #define CAMERA_USE_TEST_PATTERN      0U
 
 #define DCMIPP_DT_RAW10              0x2BU
@@ -65,108 +63,71 @@
 #define DCMIPP_DOWNSIZE_HDIV         ((CAMERA_PREVIEW_WIDTH * 1023U + (CAMERA_ISP_WIDTH / 2U)) / CAMERA_ISP_WIDTH)
 #define DCMIPP_DOWNSIZE_VDIV         ((CAMERA_PREVIEW_HEIGHT * 1023U + (CAMERA_ISP_HEIGHT / 2U)) / CAMERA_ISP_HEIGHT)
 
-/* White balance gain window, units of x1000 (1000 == 1.0x). */
-#define CAMERA_WB_MIN_X1000          250U
-#define CAMERA_WB_MAX_X1000          4000U
-/* Default white-balance gains (warm-tuned). */
+/* Default white-balance gains (warm-tuned), units x1000 (1000 == 1.0x). */
 #define CAMERA_WB_DEFAULT_R_X1000    2500U
 #define CAMERA_WB_DEFAULT_G_X1000    1000U
 #define CAMERA_WB_DEFAULT_B_X1000    1500U
 
-/* Dirty bits tracking which pending controls diverge from the active hardware
- * state. Set by the shell setters, consumed by the camera task. */
-#define CAMERA_CTRL_DIRTY_EXPOSURE    (1UL << 0)
-#define CAMERA_CTRL_DIRTY_AGAIN       (1UL << 1)
-#define CAMERA_CTRL_DIRTY_WB          (1UL << 2)
-#define CAMERA_CTRL_DIRTY_BAYER       (1UL << 3)
-#define CAMERA_CTRL_DIRTY_TPG         (1UL << 4)
-#define CAMERA_CTRL_DIRTY_SWAP_RB     (1UL << 5)
-#define CAMERA_CTRL_DIRTY_ALL         0x3FUL
-
 static uint16_t s_camera_preview[CAMERA_PREVIEW_WIDTH * CAMERA_PREVIEW_HEIGHT]
   __attribute__((aligned(32)));
-static CameraDemoDebug s_camera_debug;
 static uint8_t s_ai_capture_armed;
 static TaskHandle_t s_camera_task;
 
-static CameraDemoControls s_active_controls =
+static int CameraDemo_ConvertGain(uint16_t gain_x1000, uint8_t *shift, uint8_t *multiplier)
 {
-  .exposure_lines = IMX415_DEMO_EXPOSURE_LINES,
-  .analog_gain = IMX415_DEMO_ANALOG_GAIN,
-  .wb_r_x1000 = CAMERA_WB_DEFAULT_R_X1000,
-  .wb_g_x1000 = CAMERA_WB_DEFAULT_G_X1000,
-  .wb_b_x1000 = CAMERA_WB_DEFAULT_B_X1000,
-  .bayer = CAMERA_BAYER_GBRG,
-  .test_pattern = IMX415_TEST_PATTERN_OFF,
-  .swap_rb = 0U,
-};
+  uint32_t scaled = (uint32_t)gain_x1000 * 128U;
+  uint8_t s = 0U;
 
-static CameraDemoControls s_pending_controls =
-{
-  .exposure_lines = IMX415_DEMO_EXPOSURE_LINES,
-  .analog_gain = IMX415_DEMO_ANALOG_GAIN,
-  .wb_r_x1000 = CAMERA_WB_DEFAULT_R_X1000,
-  .wb_g_x1000 = CAMERA_WB_DEFAULT_G_X1000,
-  .wb_b_x1000 = CAMERA_WB_DEFAULT_B_X1000,
-  .bayer = CAMERA_BAYER_GBRG,
-  .test_pattern = IMX415_TEST_PATTERN_OFF,
-  .swap_rb = 0U,
-};
-
-/* Starts fully dirty so the very first snapshot programs every default into
- * the hardware, keeping the active cache and the live registers in sync. */
-static volatile uint32_t s_control_dirty = CAMERA_CTRL_DIRTY_ALL;
-
-static IMX415_DebugRegisters s_sensor_debug;
-
-static void CameraDemo_UpdateSensorDebug(void)
-{
-  (void)IMX415_GetDebugRegisters(&s_sensor_debug);
-}
-
-
-static void CameraDemo_UpdateDebug(void)
-{
-  s_camera_debug.csi_sr0 = CSI->SR0;
-  s_camera_debug.csi_err1 = CSI->ERR1;
-  s_camera_debug.csi_err2 = CSI->ERR2;
-  s_camera_debug.dcmipp_p1sr = DCMIPP->P1SR;
-  s_camera_debug.dcmipp_p1fscr = DCMIPP->P1FSCR;
-  s_camera_debug.dcmipp_p1ppm0ar1 = DCMIPP->P1PPM0AR1;
-  s_camera_debug.dcmipp_p1dmcr = DCMIPP->P1DMCR;
-  s_camera_debug.dcmipp_p1ppcr = DCMIPP->P1PPCR;
-  s_camera_debug.dcmipp_p1decr = DCMIPP->P1DECR;
-  s_camera_debug.dcmipp_p1excr1 = DCMIPP->P1EXCR1;
-  s_camera_debug.dcmipp_p1excr2 = DCMIPP->P1EXCR2;
-  s_camera_debug.dcmipp_p1cmricr = DCMIPP->P1CMRICR;
-  s_camera_debug.dcmipp_p1ri1cr1 = DCMIPP->P1RIxCR1;
-  s_camera_debug.dcmipp_p1ri1cr2 = DCMIPP->P1RIxCR2;
-  s_camera_debug.dcmipp_p2sr = DCMIPP->P2SR;
-  s_camera_debug.dcmipp_p2ppcr = DCMIPP->P2PPCR;
-}
-
-static void CameraDemo_UpdateFrameBufferStats(void)
-{
-  uint16_t minv = 0xFFFFU;
-  uint16_t maxv = 0U;
-
-  SCB_InvalidateDCache_by_Addr((uint32_t *)s_camera_preview, sizeof(s_camera_preview));
-  for (uint32_t i = 0; i < (CAMERA_PREVIEW_WIDTH * CAMERA_PREVIEW_HEIGHT); i += 97U)
+  while ((((scaled + 500U) / 1000U) > 255U) && (s < 3U))
   {
-    uint16_t v = s_camera_preview[i];
-
-    if (v < minv)
-    {
-      minv = v;
-    }
-    if (v > maxv)
-    {
-      maxv = v;
-    }
+    scaled = (scaled + 1U) / 2U;
+    s++;
   }
 
-  s_camera_debug.fb_min = minv;
-  s_camera_debug.fb_max = maxv;
+  uint32_t m = (scaled + 500U) / 1000U;
+
+  if ((m < 1U) || (m > 255U))
+  {
+    return -1;
+  }
+
+  /* gain ~= multiplier / 128 * 2^shift; SHF fields are 3 bits, s is 0..3. */
+  *shift = s;
+  *multiplier = (uint8_t)m;
+  return 0;
+}
+
+/* Program the P1 exposure-gain (white balance) registers from x1000 gains.
+ * Called once during init; there is no runtime WB control surface. */
+static void CameraDemo_ApplyWhiteBalance(uint16_t r_x1000,
+                                         uint16_t g_x1000,
+                                         uint16_t b_x1000)
+{
+  uint8_t shift_r;
+  uint8_t mult_r;
+  uint8_t shift_g;
+  uint8_t mult_g;
+  uint8_t shift_b;
+  uint8_t mult_b;
+
+  (void)CameraDemo_ConvertGain(r_x1000, &shift_r, &mult_r);
+  (void)CameraDemo_ConvertGain(g_x1000, &shift_g, &mult_g);
+  (void)CameraDemo_ConvertGain(b_x1000, &shift_b, &mult_b);
+
+  MODIFY_REG(DCMIPP->P1EXCR1,
+             DCMIPP_P1EXCR1_SHFR | DCMIPP_P1EXCR1_MULTR,
+             ((uint32_t)shift_r << DCMIPP_P1EXCR1_SHFR_Pos) |
+             ((uint32_t)mult_r << DCMIPP_P1EXCR1_MULTR_Pos));
+
+  MODIFY_REG(DCMIPP->P1EXCR2,
+             DCMIPP_P1EXCR2_SHFG | DCMIPP_P1EXCR2_MULTG |
+             DCMIPP_P1EXCR2_SHFB | DCMIPP_P1EXCR2_MULTB,
+             ((uint32_t)shift_g << DCMIPP_P1EXCR2_SHFG_Pos) |
+             ((uint32_t)mult_g << DCMIPP_P1EXCR2_MULTG_Pos) |
+             ((uint32_t)shift_b << DCMIPP_P1EXCR2_SHFB_Pos) |
+             ((uint32_t)mult_b << DCMIPP_P1EXCR2_MULTB_Pos));
+
+  SET_BIT(DCMIPP->P1EXCR1, DCMIPP_P1EXCR1_ENABLE);
 }
 
 static void CameraDemo_CopyPreviewToLcd(void)
@@ -181,25 +142,9 @@ static void CameraDemo_CopyPreviewToLcd(void)
   for (uint32_t y = 0; y < CAMERA_PREVIEW_HEIGHT; y++)
   {
     /* IMX415 VREVERSE has already corrected the sensor line order. */
-    uint32_t sy = y;
-    const uint16_t *src = &s_camera_preview[sy * CAMERA_PREVIEW_WIDTH];
+    const uint16_t *src = &s_camera_preview[y * CAMERA_PREVIEW_WIDTH];
     uint16_t *dst = &fb[y * RGB_LCD_WIDTH];
-
-    if (s_active_controls.swap_rb == 0U)
-    {
-      memcpy(dst, src, CAMERA_PREVIEW_PITCH_BYTES);
-    }
-    else
-    {
-      for (uint32_t x = 0; x < CAMERA_PREVIEW_WIDTH; x++)
-      {
-        uint16_t pixel = src[x];
-
-        dst[x] = (uint16_t)(((pixel & 0x001FU) << 11) |
-                            ( pixel & 0x07E0U)        |
-                            ((pixel & 0xF800U) >> 11));
-      }
-    }
+    memcpy(dst, src, CAMERA_PREVIEW_PITCH_BYTES);
   }
 
   RGB_LCD_FlushRows(0U, CAMERA_PREVIEW_HEIGHT);
@@ -295,8 +240,8 @@ static void CameraDemo_UpdatePipe1Rois(void)
     }
 
     /* DCMIPP ROI coordinates are in Pipe1's post-downsize 512x300 output.
-     * Pipe2 sees a 320x320 square crop from the half-resolution ISP image;
-     * map the detection back through that crop before programming Pipe1. */
+     * Pipe2 sees a square crop from the half-resolution ISP image; map the
+     * detection back through that crop before programming Pipe1. */
     roi_registers[i * 2U] =
       ((x0 << DCMIPP_P1RIxCR1_HSTART_Pos) & DCMIPP_P1RIxCR1_HSTART) |
       ((y0 << DCMIPP_P1RIxCR1_VSTART_Pos) & DCMIPP_P1RIxCR1_VSTART) |
@@ -431,14 +376,17 @@ static CameraDemoStatus CameraDemo_CSIInit(void)
                       (CAMERA_AI_VRATIO << DCMIPP_P2DSRTIOR_VRATIO_Pos);
   DCMIPP->P2DSSZR = (CAMERA_AI_WIDTH << DCMIPP_P2DSSZR_HSIZE_Pos) |
                     (CAMERA_AI_HEIGHT << DCMIPP_P2DSSZR_VSIZE_Pos);
-  /* The static-image path writes RGB bytes in R,G,B order. Keep the camera
-   * tensor in the same order; `cam swaprb` can opt into B,R swapping. */
   DCMIPP->P2PPCR = 0U; /* RGB888, one memory plane. */
   DCMIPP->P2PPM0PR = CAMERA_AI_PITCH_BYTES;
   DCMIPP->P2FCR = DCMIPP_P2FCR_CFRAMEF | DCMIPP_P2FCR_COVRF |
                   DCMIPP_P2FCR_CVSYNCF;
   DCMIPP->P2IER = DCMIPP_P2IER_FRAMEIE | DCMIPP_P2IER_OVRIE;
 
+  /* Program the default white-balance gains once; the runtime control surface
+   * has been removed, so these are the only values ever written here. */
+  CameraDemo_ApplyWhiteBalance(CAMERA_WB_DEFAULT_R_X1000,
+                               CAMERA_WB_DEFAULT_G_X1000,
+                               CAMERA_WB_DEFAULT_B_X1000);
   return CAMERA_DEMO_OK;
 }
 
@@ -494,7 +442,6 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
 
     if (elapsed >= remaining)
     {
-      CameraDemo_UpdateDebug();
       if (s_ai_capture_armed != 0U)
       {
         AIInstanceSegmentation_CancelFrame();
@@ -510,7 +457,6 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
     remaining -= elapsed;
     if (xTaskNotifyWait(0U, CAMERA_NOTIFY_ALL, &notification, remaining) == pdFALSE)
     {
-      CameraDemo_UpdateDebug();
       if (s_ai_capture_armed != 0U)
       {
         AIInstanceSegmentation_CancelFrame();
@@ -522,7 +468,6 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
 
     if ((events & CAMERA_NOTIFY_P2_OVERRUN) != 0U)
     {
-      CameraDemo_UpdateDebug();
       if (s_ai_capture_armed != 0U)
       {
         AIInstanceSegmentation_CancelFrame();
@@ -532,12 +477,6 @@ static CameraDemoStatus CameraDemo_WaitPipe1Frame(void)
     }
   }
 
-  CameraDemo_UpdateDebug();
-  CameraDemo_UpdateFrameBufferStats();
-  /* Refresh the sensor register snapshot here, in the camera task (which owns
-   * I2C2), so `cam status` can cross-check the cache against live hardware
-   * without the shell task ever touching the I2C bus. */
-  CameraDemo_UpdateSensorDebug();
   CameraDemo_CopyPreviewToLcd();
   if ((s_ai_capture_armed != 0U) &&
       ((events & CAMERA_NOTIFY_P2_FRAME) != 0U))
@@ -583,11 +522,9 @@ CameraDemoStatus CameraDemo_Init(uint16_t *sensor_id)
   {
     if ((xTaskGetTickCount() - start) > pdMS_TO_TICKS(CAMERA_CAPTURE_TIMEOUT_MS))
     {
-      CameraDemo_UpdateDebug();
       return CAMERA_DEMO_CSI_WAIT_TIMEOUT;
     }
   }
-  CameraDemo_UpdateSensorDebug();
   return CAMERA_DEMO_OK;
 }
 
@@ -628,334 +565,8 @@ void CameraDemo_DCMIPP_IRQHandler(void)
   portYIELD_FROM_ISR(higher_priority_task_woken);
 }
 
-/* ---- runtime control application (runs in camera task, owns I2C2 + DCMIPP) ---- */
-
-static int CameraDemo_ConvertGain(uint16_t gain_x1000, uint8_t *shift, uint8_t *multiplier)
-{
-  uint32_t scaled = (uint32_t)gain_x1000 * 128U;
-  uint8_t s = 0U;
-
-  while ((((scaled + 500U) / 1000U) > 255U) && (s < 3U))
-  {
-    scaled = (scaled + 1U) / 2U;
-    s++;
-  }
-
-  uint32_t m = (scaled + 500U) / 1000U;
-
-  if ((m < 1U) || (m > 255U))
-  {
-    return -1;
-  }
-
-  /* gain ~= multiplier / 128 * 2^shift; SHF fields are 3 bits, s is 0..3. */
-  *shift = s;
-  *multiplier = (uint8_t)m;
-  return 0;
-}
-
-static CameraDemoStatus CameraDemo_ApplyWhiteBalance(const CameraDemoControls *controls)
-{
-  uint8_t shift_r;
-  uint8_t mult_r;
-  uint8_t shift_g;
-  uint8_t mult_g;
-  uint8_t shift_b;
-  uint8_t mult_b;
-
-  if (CameraDemo_ConvertGain(controls->wb_r_x1000, &shift_r, &mult_r) != 0)
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-  if (CameraDemo_ConvertGain(controls->wb_g_x1000, &shift_g, &mult_g) != 0)
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-  if (CameraDemo_ConvertGain(controls->wb_b_x1000, &shift_b, &mult_b) != 0)
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-
-  MODIFY_REG(DCMIPP->P1EXCR1,
-             DCMIPP_P1EXCR1_SHFR | DCMIPP_P1EXCR1_MULTR,
-             ((uint32_t)shift_r << DCMIPP_P1EXCR1_SHFR_Pos) |
-             ((uint32_t)mult_r << DCMIPP_P1EXCR1_MULTR_Pos));
-
-  MODIFY_REG(DCMIPP->P1EXCR2,
-             DCMIPP_P1EXCR2_SHFG | DCMIPP_P1EXCR2_MULTG |
-             DCMIPP_P1EXCR2_SHFB | DCMIPP_P1EXCR2_MULTB,
-             ((uint32_t)shift_g << DCMIPP_P1EXCR2_SHFG_Pos) |
-             ((uint32_t)mult_g << DCMIPP_P1EXCR2_MULTG_Pos) |
-             ((uint32_t)shift_b << DCMIPP_P1EXCR2_SHFB_Pos) |
-             ((uint32_t)mult_b << DCMIPP_P1EXCR2_MULTB_Pos));
-
-  SET_BIT(DCMIPP->P1EXCR1, DCMIPP_P1EXCR1_ENABLE);
-
-  return CAMERA_DEMO_OK;
-}
-
-static CameraDemoStatus CameraDemo_ApplyBayerPattern(CameraBayerPattern pattern)
-{
-  uint32_t raw;
-
-  switch (pattern)
-  {
-    case CAMERA_BAYER_RGGB: raw = DCMIPP_RAWBAYER_RGGB; break;
-    case CAMERA_BAYER_GRBG: raw = DCMIPP_RAWBAYER_GRBG; break;
-    case CAMERA_BAYER_GBRG: raw = DCMIPP_RAWBAYER_GBRG; break;
-    case CAMERA_BAYER_BGGR: raw = DCMIPP_RAWBAYER_BGGR; break;
-    default: return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-
-  MODIFY_REG(DCMIPP->P1DMCR, DCMIPP_P1DMCR_TYPE, raw);
-  SET_BIT(DCMIPP->P1DMCR, DCMIPP_P1DMCR_ENABLE);
-
-  return CAMERA_DEMO_OK;
-}
-
-/* Apply every pending control between two snapshots. All I2C / DCMIPP access
- * happens here, in the camera task. On any failure the not-yet-applied claimed
- * bits are restored so the next frame retries them; nothing is silently lost. */
-static CameraDemoStatus CameraDemo_ApplyPendingControls(void)
-{
-  CameraDemoControls pending;
-  uint32_t claimed;
-  uint32_t applied = 0U;
-
-  taskENTER_CRITICAL();
-  pending = s_pending_controls;
-  claimed = s_control_dirty;
-  s_control_dirty &= ~claimed;
-  taskEXIT_CRITICAL();
-
-  if (claimed == 0U)
-  {
-    return CAMERA_DEMO_OK;
-  }
-
-  if ((claimed & CAMERA_CTRL_DIRTY_TPG) != 0U)
-  {
-    if (IMX415_SetTestPattern(pending.test_pattern) != IMX415_OK)
-    {
-      goto apply_failed;
-    }
-    s_active_controls.test_pattern = pending.test_pattern;
-    applied |= CAMERA_CTRL_DIRTY_TPG;
-  }
-
-  if ((claimed & CAMERA_CTRL_DIRTY_EXPOSURE) != 0U)
-  {
-    if (IMX415_SetExposureLines(pending.exposure_lines) != IMX415_OK)
-    {
-      goto apply_failed;
-    }
-    s_active_controls.exposure_lines = pending.exposure_lines;
-    applied |= CAMERA_CTRL_DIRTY_EXPOSURE;
-  }
-
-  if ((claimed & CAMERA_CTRL_DIRTY_AGAIN) != 0U)
-  {
-    if (IMX415_SetAnalogGain(pending.analog_gain) != IMX415_OK)
-    {
-      goto apply_failed;
-    }
-    s_active_controls.analog_gain = pending.analog_gain;
-    applied |= CAMERA_CTRL_DIRTY_AGAIN;
-  }
-
-  if ((claimed & CAMERA_CTRL_DIRTY_BAYER) != 0U)
-  {
-    if (CameraDemo_ApplyBayerPattern(pending.bayer) != CAMERA_DEMO_OK)
-    {
-      goto apply_failed;
-    }
-    s_active_controls.bayer = pending.bayer;
-    applied |= CAMERA_CTRL_DIRTY_BAYER;
-  }
-
-  if ((claimed & CAMERA_CTRL_DIRTY_WB) != 0U)
-  {
-    if (CameraDemo_ApplyWhiteBalance(&pending) != CAMERA_DEMO_OK)
-    {
-      goto apply_failed;
-    }
-    s_active_controls.wb_r_x1000 = pending.wb_r_x1000;
-    s_active_controls.wb_g_x1000 = pending.wb_g_x1000;
-    s_active_controls.wb_b_x1000 = pending.wb_b_x1000;
-    applied |= CAMERA_CTRL_DIRTY_WB;
-  }
-
-  if ((claimed & CAMERA_CTRL_DIRTY_SWAP_RB) != 0U)
-  {
-    /* Software-only state, consumed by CopyPreviewToLcd(). Cannot fail. */
-    s_active_controls.swap_rb = pending.swap_rb;
-    applied |= CAMERA_CTRL_DIRTY_SWAP_RB;
-  }
-
-  return CAMERA_DEMO_OK;
-
-apply_failed:
-  taskENTER_CRITICAL();
-  s_control_dirty |= (claimed & ~applied);
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_CONTROL_APPLY_ERROR;
-}
-
 CameraDemoStatus CameraDemo_CaptureToLcd(void)
 {
-  CameraDemoStatus status = CameraDemo_ApplyPendingControls();
-  if (status != CAMERA_DEMO_OK)
-  {
-    return status;
-  }
-
   CameraDemo_StartPipe1();
   return CameraDemo_WaitPipe1Frame();
-}
-
-void CameraDemo_GetDebug(CameraDemoDebug *debug)
-{
-  if (debug != 0)
-  {
-    *debug = s_camera_debug;
-  }
-}
-
-/* ---- shell-facing setters: validate, then update pending + dirty atomically ---- */
-
-CameraDemoStatus CameraDemo_SetExposureLines(uint32_t exposure_lines)
-{
-  if ((exposure_lines < IMX415_EXPOSURE_MIN_LINES) ||
-      (exposure_lines > (IMX415_DEMO_VMAX_LINES - IMX415_EXPOSURE_OFFSET_LINES)))
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-
-  taskENTER_CRITICAL();
-  s_pending_controls.exposure_lines = exposure_lines;
-  s_control_dirty |= CAMERA_CTRL_DIRTY_EXPOSURE;
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_OK;
-}
-
-CameraDemoStatus CameraDemo_SetAnalogGain(uint16_t gain)
-{
-  /* gain is unsigned, so IMX415_ANALOG_GAIN_MIN (0) is the natural floor;
-   * only the upper bound is a real constraint here. */
-  if (gain > IMX415_ANALOG_GAIN_MAX)
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-
-  taskENTER_CRITICAL();
-  s_pending_controls.analog_gain = gain;
-  s_control_dirty |= CAMERA_CTRL_DIRTY_AGAIN;
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_OK;
-}
-
-CameraDemoStatus CameraDemo_SetWhiteBalance(uint16_t r_x1000,
-                                            uint16_t g_x1000,
-                                            uint16_t b_x1000)
-{
-  if ((r_x1000 < CAMERA_WB_MIN_X1000) || (r_x1000 > CAMERA_WB_MAX_X1000) ||
-      (g_x1000 < CAMERA_WB_MIN_X1000) || (g_x1000 > CAMERA_WB_MAX_X1000) ||
-      (b_x1000 < CAMERA_WB_MIN_X1000) || (b_x1000 > CAMERA_WB_MAX_X1000))
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-
-  taskENTER_CRITICAL();
-  s_pending_controls.wb_r_x1000 = r_x1000;
-  s_pending_controls.wb_g_x1000 = g_x1000;
-  s_pending_controls.wb_b_x1000 = b_x1000;
-  s_control_dirty |= CAMERA_CTRL_DIRTY_WB;
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_OK;
-}
-
-CameraDemoStatus CameraDemo_SetBayerPattern(CameraBayerPattern pattern)
-{
-  if ((pattern != CAMERA_BAYER_RGGB) &&
-      (pattern != CAMERA_BAYER_GRBG) &&
-      (pattern != CAMERA_BAYER_GBRG) &&
-      (pattern != CAMERA_BAYER_BGGR))
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-
-  taskENTER_CRITICAL();
-  s_pending_controls.bayer = pattern;
-  s_control_dirty |= CAMERA_CTRL_DIRTY_BAYER;
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_OK;
-}
-
-CameraDemoStatus CameraDemo_SetTestPattern(IMX415_TestPattern pattern)
-{
-  if ((pattern != IMX415_TEST_PATTERN_OFF) &&
-      (pattern != IMX415_TEST_PATTERN_HORIZONTAL_COLOR_BAR) &&
-      (pattern != IMX415_TEST_PATTERN_VERTICAL_COLOR_BAR))
-  {
-    return CAMERA_DEMO_INVALID_ARGUMENT;
-  }
-
-  taskENTER_CRITICAL();
-  s_pending_controls.test_pattern = pattern;
-  s_control_dirty |= CAMERA_CTRL_DIRTY_TPG;
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_OK;
-}
-
-CameraDemoStatus CameraDemo_SetSwapRB(uint8_t enable)
-{
-  taskENTER_CRITICAL();
-  s_pending_controls.swap_rb = (enable != 0U) ? 1U : 0U;
-  s_control_dirty |= CAMERA_CTRL_DIRTY_SWAP_RB;
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_OK;
-}
-
-CameraDemoStatus CameraDemo_RestoreDefaults(void)
-{
-  taskENTER_CRITICAL();
-  s_pending_controls.exposure_lines = IMX415_DEMO_EXPOSURE_LINES;
-  s_pending_controls.analog_gain = IMX415_DEMO_ANALOG_GAIN;
-  s_pending_controls.wb_r_x1000 = CAMERA_WB_DEFAULT_R_X1000;
-  s_pending_controls.wb_g_x1000 = CAMERA_WB_DEFAULT_G_X1000;
-  s_pending_controls.wb_b_x1000 = CAMERA_WB_DEFAULT_B_X1000;
-    s_pending_controls.bayer = CAMERA_BAYER_GBRG;
-  s_pending_controls.test_pattern = IMX415_TEST_PATTERN_OFF;
-  s_pending_controls.swap_rb = 0U;
-  s_control_dirty |= CAMERA_CTRL_DIRTY_ALL;
-  taskEXIT_CRITICAL();
-  return CAMERA_DEMO_OK;
-}
-
-void CameraDemo_GetControls(CameraDemoControls *active,
-                            CameraDemoControls *pending,
-                            uint32_t *dirty_mask)
-{
-  taskENTER_CRITICAL();
-  if (active != 0)
-  {
-    *active = s_active_controls;
-  }
-  if (pending != 0)
-  {
-    *pending = s_pending_controls;
-  }
-  if (dirty_mask != 0)
-  {
-    *dirty_mask = s_control_dirty;
-  }
-  taskEXIT_CRITICAL();
-}
-
-void CameraDemo_GetSensorDebug(IMX415_DebugRegisters *registers)
-{
-  if (registers != 0)
-  {
-    *registers = s_sensor_debug;
-  }
 }

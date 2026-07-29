@@ -60,7 +60,6 @@ set(APP_SRCS
     Core/Src/app/main.c
     Core/Src/app/app_tasks.c
     Core/Src/app/ai_instance_segmentation.c
-    Core/Src/app/static_image_demo.c
     Core/Src/drivers/board_init.c
     Core/Src/drivers/camera_demo.c
     Core/Src/drivers/imx415.c
@@ -68,7 +67,6 @@ set(APP_SRCS
     Core/Src/drivers/sdmmc_drv.c
     Core/Src/drivers/sdmmc_test.c
     Core/Src/shell_cmds/sdmmc_cmd.c
-    Core/Src/shell_cmds/camera_shell.c
     Core/Src/console/serial_console.c
     Core/Src/console/console_log.c
     Core/Src/console/shell_port.c

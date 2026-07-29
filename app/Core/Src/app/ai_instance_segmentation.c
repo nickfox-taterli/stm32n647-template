@@ -154,16 +154,16 @@ void AIInstanceSegmentationTask(void *argument)
 
   s_ai_task = xTaskGetCurrentTaskHandle();
   s_ai_init_stage = 1U;
-  LOG_INFO("ai: task started\r\n");
+  LOG_DEBUG("ai: task started\r\n");
   ai_npu_init();
   s_ai_init_stage = 2U;
-  LOG_INFO("ai: npu initialized\r\n");
+  LOG_DEBUG("ai: npu initialized\r\n");
   configASSERT(stai_runtime_init() == STAI_SUCCESS);
   s_ai_init_stage = 3U;
-  LOG_INFO("ai: runtime initialized\r\n");
+  LOG_DEBUG("ai: runtime initialized\r\n");
   configASSERT(stai_network_init(s_network_context) == STAI_SUCCESS);
   s_ai_init_stage = 4U;
-  LOG_INFO("ai: network initialized\r\n");
+  LOG_DEBUG("ai: network initialized\r\n");
   configASSERT(stai_network_get_info(s_network_context, &info) == STAI_SUCCESS);
   s_ai_init_stage = 5U;
   configASSERT((info.n_inputs == 1U) && (info.n_outputs == STAI_NETWORK_OUT_NUM));
@@ -196,15 +196,26 @@ void AIInstanceSegmentationTask(void *argument)
     s_result_sequence++;
     taskEXIT_CRITICAL();
     if (s_box_count == 0U)
-    { LOG_WARN("ai: objects=0 pp=%ld\r\n", (long)err); }
+    {
+      if (err != 0)
+      {
+        LOG_WARN("ai: postprocess err=%ld\r\n", (long)err);
+      }
+      else
+      {
+        LOG_DEBUG("ai: objects=0\r\n");
+      }
+    }
+#if CONSOLE_LOG_COMPILE_LEVEL <= CONSOLE_LOG_DEBUG
     else for (uint32_t i = 0; i < s_box_count; ++i)
     {
       uint32_t cls = (uint32_t)s_boxes[i].class_index;
       uint32_t confidence = (uint32_t)(s_boxes[i].conf * 1000.0f + 0.5f);
-      LOG_INFO("ai: %s %lu.%03lu\r\n",
+      LOG_DEBUG("ai: %s %lu.%03lu\r\n",
         (cls < NN_CLASSES) ? s_classes[cls] : "unknown",
         (unsigned long)(confidence / 1000U), (unsigned long)(confidence % 1000U));
     }
+#endif
     taskENTER_CRITICAL();
     s_ai_buffer_busy = 0U;
     taskEXIT_CRITICAL();

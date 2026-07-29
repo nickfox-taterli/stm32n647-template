@@ -6,7 +6,9 @@
 
 #define CONSOLE_LOG_BUF_SIZE 128U
 
-static console_log_level_t s_level = CONSOLE_LOG_INFO;
+/* Defaults to the compile-time floor so the levels that survived compilation
+ * are the ones that print; console_log_set_level can narrow it further. */
+static console_log_level_t s_level = CONSOLE_LOG_COMPILE_LEVEL;
 
 void console_log_set_level(console_log_level_t level)
 {
