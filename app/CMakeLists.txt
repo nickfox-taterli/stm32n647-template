@@ -52,6 +52,7 @@ set(LL_SRCS
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_utils.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_sdmmc.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_dlyb.c
+    Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_venc.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_sd.c
     Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_cacheaxi.c
 )
@@ -66,7 +67,9 @@ set(APP_SRCS
     Core/Src/drivers/rgb_lcd.c
     Core/Src/drivers/sdmmc_drv.c
     Core/Src/drivers/sdmmc_test.c
+    Core/Src/drivers/venc_recorder.c
     Core/Src/shell_cmds/sdmmc_cmd.c
+    Core/Src/shell_cmds/venc_cmd.c
     Core/Src/console/serial_console.c
     Core/Src/console/console_log.c
     Core/Src/console/shell_port.c
@@ -80,6 +83,11 @@ set(APP_SRCS
     Core/Src/usb/usb_descriptors.c
     Core/Src/usb/usb_msc.c
 )
+
+file(GLOB VENC_COMMON_SRCS CONFIGURE_DEPENDS
+    Middlewares/Third_Party/VideoEncoder/source/common/*.c)
+file(GLOB VENC_H264_SRCS CONFIGURE_DEPENDS
+    Middlewares/Third_Party/VideoEncoder/source/h264/*.c)
 
 set(FREERTOS_SRCS
     Middlewares/FreeRTOS-Kernel/tasks.c
@@ -136,6 +144,9 @@ add_executable(${APP_ELF}
     ${LETTER_SHELL_SRCS}
     ${LWRB_SRCS}
     ${TINYUSB_SRCS}
+    Middlewares/ST/VideoEncoder_EWL/ewl_impl.c
+    ${VENC_COMMON_SRCS}
+    ${VENC_H264_SRCS}
     ${ATON_SRCS}
     ${AI_DIR}/Model/network.c
     ${AI_DIR}/Model/stai_network.c
@@ -177,6 +188,10 @@ target_include_directories(${APP_ELF} PRIVATE
     ${TINYUSB_DIR}/device
     ${TINYUSB_DIR}/class/msc
     ${TINYUSB_DIR}/portable/synopsys/dwc2
+    ${CMAKE_SOURCE_DIR}/Middlewares/ST/VideoEncoder_EWL
+    ${CMAKE_SOURCE_DIR}/Middlewares/Third_Party/VideoEncoder/inc
+    ${CMAKE_SOURCE_DIR}/Middlewares/Third_Party/VideoEncoder/source/common
+    ${CMAKE_SOURCE_DIR}/Middlewares/Third_Party/VideoEncoder/source/h264
 )
 
 target_compile_options(${APP_ELF} PRIVATE

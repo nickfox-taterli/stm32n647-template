@@ -23,3 +23,9 @@ STM32N647X0HxQ 嵌入式工程,包含 FSBL(First Stage Boot Loader)和 APP 两�
 ├── scripts/              # CubeCLT 构建和烧录脚本
 └── build/                # 本地构建输出（被 Git 忽略）
 ```
+
+## VENC 录像
+
+串口命令触发的 10 秒 H.264 录像、SD NAND 裸盘布局和主机导出方法见
+[`docs/venc-recording.md`](docs/venc-recording.md)。该流程会覆盖 SD NAND 的
+FAT/MBR，执行前请确认盘内数据可以丢弃。

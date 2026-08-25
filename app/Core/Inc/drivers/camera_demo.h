@@ -19,6 +19,7 @@ typedef enum
 
 CameraDemoStatus CameraDemo_Init(uint16_t *sensor_id);
 CameraDemoStatus CameraDemo_CaptureToLcd(void);
+const uint16_t *CameraDemo_GetPreviewBuffer(void);
 void CameraDemo_DCMIPP_IRQHandler(void);
 
 #endif /* CAMERA_DEMO_H */

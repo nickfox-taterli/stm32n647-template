@@ -9,9 +9,11 @@
 #include "shell_port.h"
 #include "ai_instance_segmentation.h"
 #include "sdmmc_drv.h"
+#include "venc_recorder.h"
 
 int main(void)
 {
+  VencRecorder_MemoryInit();
   SCB_EnableICache();
   SCB_EnableDCache();
 

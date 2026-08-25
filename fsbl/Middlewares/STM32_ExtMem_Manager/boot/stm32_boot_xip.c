@@ -124,6 +124,10 @@ BOOTStatus_TypeDef JumpToApplication(void)
   /* Re-enable the interrupts */
   __set_PRIMASK(primask_bit);
 
+#if defined(__GNUC__)
+  /* Zero-size label used by the RAM-only debugger hand-off. */
+  __asm volatile (".global FSBL_DebugHandoff\nFSBL_DebugHandoff:");
+#endif
   JumpToApp();
   return BOOT_OK;
 }

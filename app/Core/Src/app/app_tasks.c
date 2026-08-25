@@ -2,6 +2,7 @@
 #include "camera_demo.h"
 #include "console_log.h"
 #include "rgb_lcd.h"
+#include "venc_recorder.h"
 #include "stm32n6xx_ll_gpio.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -43,6 +44,7 @@ void CameraTask(void *argument)
       LOG_WARN("camera: capture status=%u\r\n", (unsigned int)status);
       break;
     }
+    VencRecorder_ProcessFrame(CameraDemo_GetPreviewBuffer());
   }
 
   while (1)

@@ -27,6 +27,14 @@
             "problemMatcher": []
         },
         {
+            "label": "Refresh IntelliSense DB",
+            "type": "process",
+            "command": "python3",
+            "args": ["${workspaceFolder}/scripts/refresh-intellisense.py"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
             "label": "Flash APP",
             "type": "process",
             "command": "${workspaceFolder}/scripts/flash-app.sh",
@@ -77,8 +85,17 @@
             "problemMatcher": []
         },
         {
+            "label": "Stage RAM FSBL for Debug",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/stage-ram-fsbl-for-debug.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "Build FSBL",
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
             "label": "Prepare APP Debug",
-            "dependsOn": ["Build FSBL", "Flash APP"],
+            "dependsOn": ["Flash APP", "Stage RAM FSBL for Debug"],
             "dependsOrder": "sequence",
             "problemMatcher": []
         }

@@ -106,13 +106,13 @@ rsync -aH --exclude='/build/' --exclude='/app/build/' --exclude='/fsbl/build/' \
 不是手写 include 列表。已配好:
 
 - `.vscode/c_cpp_properties.json`:`compileCommands` 指向 `${workspaceFolder}/compile_commands.json`
-  (app+fsbl 合并,53 条;`compilerPath=/usr/bin/arm-none-eabi-gcc`,`intelliSenseMode=gcc-arm`,`cStandard=c11`)。
+  (app+fsbl 合并;`compilerPath=/usr/bin/arm-none-eabi-gcc`,`intelliSenseMode=gcc-arm`,`cStandard=c11`)。
 - `.vscode/settings.json`:`cmake.configureSettings` 设了 `CMAKE_EXPORT_COMPILE_COMMANDS=ON`。
-- `.vscode/merge_compile_commands.py`:把 `app/build` + `fsbl/build` 的 compile_commands.json 合并到根目录。
-- tasks.json 两个 Configure 任务都带 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`,并新增任务 **`Refresh IntelliSense DB`**。
+- `scripts/refresh-intellisense.py`:把 `build/app` + `build/fsbl` 的 compile_commands.json 原子合并到根目录。
+- `scripts/build.sh` 每次构建后自动刷新索引；tasks.json 也提供 **`Refresh IntelliSense DB`** 手动任务。
 
 重新 configure 或增删源文件后,跑一次 `Refresh IntelliSense DB`
-(或 `python3 .vscode/merge_compile_commands.py`)刷新;改已有文件内容无需刷新。
+(或 `python3 scripts/refresh-intellisense.py`)刷新;改已有文件内容无需刷新。
 改完配置后在 VSCode 里 `Ctrl+Shift+P` → "Reload Window" 让 cpptools 重建索引。
 
 > 旧的 `C_Cpp.default.includePath/defines`(手写、app/fsbl 混在一起,还误带 `USE_HAL_DRIVER`

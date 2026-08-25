@@ -42,3 +42,8 @@ fi
 if test "$TARGET" = fsbl || test "$TARGET" = all; then
   build_target fsbl
 fi
+
+# Keep the editor's single APP+FSBL index in sync with the build that just ran.
+# This is intentionally generated from build/*, never from an old in-tree
+# build directory whose CMake cache may point at a different checkout path.
+python3 "$ROOT/scripts/refresh-intellisense.py"

@@ -570,3 +570,8 @@ CameraDemoStatus CameraDemo_CaptureToLcd(void)
   CameraDemo_StartPipe1();
   return CameraDemo_WaitPipe1Frame();
 }
+
+const uint16_t *CameraDemo_GetPreviewBuffer(void)
+{
+  return s_camera_preview;
+}

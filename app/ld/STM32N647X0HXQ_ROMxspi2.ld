@@ -199,6 +199,18 @@ SECTIONS
     . = ALIGN(32);
   } >HYPERRAM
 
+  /* VENC software/reference/output buffers are shared with a bus master and
+   * are mapped non-cacheable by VencRecorder_MemoryInit(). */
+  .VENC_RAM (NOLOAD) :
+  {
+    . = ALIGN(32);
+    __venc_ram_start__ = .;
+    *(.VENC_RAM)
+    *(.VENC_RAM*)
+    . = ALIGN(32);
+    __venc_ram_end__ = .;
+  } >HYPERRAM
+
   /DISCARD/ :
   {
     libc.a ( * )
